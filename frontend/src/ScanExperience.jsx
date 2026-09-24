@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { securityScoreTone } from './securityScoreTone.js'
 
 const sourceLabels = { ldap: 'Active Directory', demo: 'Демо' }
 const levels = [
@@ -7,10 +8,6 @@ const levels = [
   ['medium', 'Средний'],
   ['low', 'Низкий'],
 ]
-
-export function securityScoreTone(score) {
-  return score < 40 ? 'low' : score < 70 ? 'medium' : 'good'
-}
 
 function scanDate(value) {
   return value ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Нет данных'
@@ -38,7 +35,7 @@ export function ScanProgress({ startedAt, source, active }) {
   </div>
 }
 
-export function ScanHistory({ scans, selectedScanId, onSelect, recentRun }) {
+export function ScanHistory({ scans, selectedScanId, onSelect, recentRun, riskThresholds }) {
   const [filter, setFilter] = useState('all')
   const visible = scans.filter(item => filter === 'all' || item.source === filter)
   const selected = visible.find(item => item.scan_id === selectedScanId) ?? visible[0]
@@ -68,13 +65,13 @@ export function ScanHistory({ scans, selectedScanId, onSelect, recentRun }) {
           <button type="button" className={'scan-history-run' + (selected?.scan_id === item.scan_id ? ' active' : '')} key={item.scan_id} onClick={() => onSelect(item.scan_id)} aria-current={selected?.scan_id === item.scan_id ? 'true' : undefined}>
             <span className="scan-run-index">{String(index + 1).padStart(2, '0')}</span>
             <span className="scan-run-main"><strong>{scanDate(item.scanned_at)}</strong><small>{sourceLabels[item.source] ?? item.source} · {item.summary.finding_count} находок</small></span>
-            <span className={`scan-run-score score-tone-${securityScoreTone(item.summary.security_score)}`}><strong>{item.summary.security_score}</strong><small>/100</small></span>
+            <span className={`scan-run-score score-tone-${securityScoreTone(item.summary.security_score, riskThresholds)}`}><strong>{item.summary.security_score}</strong><small>/100</small></span>
           </button>)}</div> : <div className="history-empty">Для этого источника анализ ещё не запускали.</div>}
       </section>
       {selected && <section className="panel scan-history-detail">
         <div className="history-detail-top">
           <div><span className="eyebrow">Сводка анализа</span><h2>{scanDate(selected.scanned_at)}</h2><p>{sourceLabels[selected.source] ?? selected.source}</p></div>
-          <div className={`history-detail-score score-tone-${securityScoreTone(selected.summary.security_score)}`}><strong>{selected.summary.security_score}</strong><span>/100</span><small>Security Score · выше лучше</small></div>
+          <div className={`history-detail-score score-tone-${securityScoreTone(selected.summary.security_score, riskThresholds)}`}><strong>{selected.summary.security_score}</strong><span>/100</span><small>Security Score · выше лучше</small></div>
         </div>
         <div className="history-detail-metrics">
           <div><strong>{selected.summary.total_users}</strong><span>аккаунтов</span></div>

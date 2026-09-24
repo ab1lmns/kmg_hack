@@ -701,7 +701,7 @@ td{font-size:13px;color:var(--ui-ink)}
 }
 .overview-grid > *{min-width:0}
 .score-card{
-  --score-bg:#214538;
+  --score-bg:#21443d;
   --score-accent:#8be0ad;
   --score-track:#476451;
   grid-column:auto;
@@ -713,12 +713,12 @@ td{font-size:13px;color:var(--ui-ink)}
   gap:18px;
   padding:22px 24px;
   color:#f2fbf6;
-  border-color:var(--score-bg);
-  background:var(--score-bg);
+  border-color:#23483d;
+  background:radial-gradient(circle at 100% 0%,#3d7359 0%,transparent 45%),linear-gradient(135deg,#1d4942,#17352f);
   box-shadow:0 12px 28px #173d3020;
 }
-.score-card.score-medium{--score-bg:#4c402d;--score-accent:#f0c276;--score-track:#736349}
-.score-card.score-low{--score-bg:#4b3036;--score-accent:#ee9199;--score-track:#765257}
+.score-card.score-medium{--score-bg:#4c402d;--score-accent:#f0c276;--score-track:#736349;background:linear-gradient(135deg,#574b35,#393325)}
+.score-card.score-low{--score-bg:#4b3036;--score-accent:#ee9199;--score-track:#765257;background:linear-gradient(135deg,#5a3840,#3d2c32)}
 .score-card:hover{border-color:var(--score-accent);box-shadow:0 16px 34px #173d3029}
 .score-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .score-card-head span{font-size:13px;font-weight:700;letter-spacing:.2px;color:#e1ebe3}

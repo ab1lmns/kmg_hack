@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, downloadCsv, setAccessToken } from './api.js'
-import { ScanHistory, ScanProgress, securityScoreTone } from './ScanExperience.jsx'
+import { ScanHistory, ScanProgress } from './ScanExperience.jsx'
+import { securityScoreTone } from './securityScoreTone.js'
 
 const severityLabels = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', safe: 'Без риска' }
 const severityPlain = { critical: 'Критично', high: 'Высокий риск', medium: 'Средний риск', low: 'Низкий риск' }
@@ -47,7 +48,7 @@ function Metric({ level, label, value, total, helper }) {
 }
 
 function Dashboard({ dashboard, accounts, scans, comparison, onOpenAccount }) {
-  const scoreTone = securityScoreTone(dashboard.security_score)
+  const scoreTone = securityScoreTone(dashboard.security_score, dashboard.risk_thresholds)
   const top = dashboard.top_risky_users ?? []
   const policyAvailable = Object.keys(dashboard.domain_policy ?? {}).length > 0
   const maxCategory = Math.max(...(dashboard.categories ?? []).map(item => item.count), 1)
@@ -56,7 +57,7 @@ function Dashboard({ dashboard, accounts, scans, comparison, onOpenAccount }) {
   return <>
     <div className="dashboard-intro"><div><h1>Обзор безопасности</h1><p>Риски Active Directory и аккаунты, требующие внимания.</p></div></div>
     <div className="overview-grid">
-      <section className={`score-card score-${scoreTone}`} aria-label="AD Security Score"><div className="score-card-head"><span>Состояние домена</span><strong>100 = лучше</strong></div><div className="score-card-body"><div className="score-ring" title="100 означает минимальный выявленный риск. Оценка основана на среднем риске аккаунтов, компьютеров и политики домена." style={{ '--score': `${dashboard.security_score}%` }}><div><strong>{dashboard.security_score}</strong><span>/ 100</span></div></div><div className="score-copy"><h2>AD Security Score</h2><p>Высокий балл — ниже риск. Низкий балл — выше риск.</p></div></div></section>
+      <section className={`score-card score-${scoreTone}`} aria-label="AD Security Score"><div className="score-card-head"><span>Состояние домена</span><strong>100 = лучше</strong></div><div className="score-card-body"><div className="score-ring" title="100 означает минимальный выявленный риск. Оценка основана на среднем риске аккаунтов, компьютеров и политики домена." style={{ '--score': `${dashboard.security_score}%` }}><div><strong>{dashboard.security_score}</strong><span>/ 100</span></div></div><div className="score-copy"><h2>AD Security Score</h2><p>Средний риск объектов: {100 - dashboard.security_score}/100. Отдельные находки показаны рядом.</p></div></div></section>
       <div className="severity-grid" aria-label="Находки по уровню риска">
         <Metric level="critical" label="Критично" value={dashboard.findings.critical} total={dashboard.finding_count} helper="Проверить сразу" />
         <Metric level="high" label="Высокий" value={dashboard.findings.high} total={dashboard.finding_count} helper="Высокий приоритет" />
@@ -98,7 +99,7 @@ function Dashboard({ dashboard, accounts, scans, comparison, onOpenAccount }) {
       <section className="panel top-accounts-panel"><div className="panel-head"><div><h2>Наиболее рискованные аккаунты</h2><p>Откройте карточку, чтобы увидеть причины и рекомендации.</p></div></div>
         {top.length ? <div className="top-list">{top.map(item => <button className="top-row" key={item.id} onClick={() => onOpenAccount(item.id)}><span className={`top-rank avatar-${item.risk_level}`}><Icon name="users" size={19}/></span><span className="top-person"><strong>{item.username}</strong><small>{item.display_name}</small></span><Badge level={item.risk_level}/><strong className="top-score">{item.risk_score}</strong><Icon name="arrow" size={17}/></button>)}</div> : <Empty title="Рисков нет" body="После сканирования здесь появятся аккаунты с наибольшим риском."/>}
       </section>
-        <section className="panel"><div className="panel-head"><div><h2>Динамика Security Score</h2><p>Последние сканирования источника «{sourceLabels[dashboard.source]}».</p></div></div>{comparison?.previous_scan_id && <div className="scan-comparison"><span>Score: {comparison.previous.security_score} → {comparison.current.security_score}</span><span>Critical: {comparison.previous.findings.critical} → {comparison.current.findings.critical}</span><span>High: {comparison.previous.findings.high} → {comparison.current.findings.high}</span><span>Новые: {comparison.added_findings} · Устранённые: {comparison.resolved_findings}</span></div>}{history.length > 1 ? <div className="history-bars">{history.map(item => <div className={`history-item score-tone-${securityScoreTone(item.summary.security_score)}`} key={item.scan_id} title={`${formatDate(item.scanned_at)} — ${item.summary.security_score}/100`}><strong>{item.summary.security_score}</strong><div className="history-track"><div style={{height: `${item.summary.security_score}%`}}/></div><small>{new Date(item.scanned_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</small></div>)}</div> : <p className="muted">Динамика появится после второго сканирования.</p>}</section>
+        <section className="panel"><div className="panel-head"><div><h2>Динамика Security Score</h2><p>Последние сканирования источника «{sourceLabels[dashboard.source]}».</p></div></div>{comparison?.previous_scan_id && <div className="scan-comparison"><span>Score: {comparison.previous.security_score} → {comparison.current.security_score}</span><span>Critical: {comparison.previous.findings.critical} → {comparison.current.findings.critical}</span><span>High: {comparison.previous.findings.high} → {comparison.current.findings.high}</span><span>Новые: {comparison.added_findings} · Устранённые: {comparison.resolved_findings}</span></div>}{history.length > 1 ? <div className="history-bars">{history.map(item => <div className={`history-item score-tone-${securityScoreTone(item.summary.security_score, dashboard.risk_thresholds)}`} key={item.scan_id} title={`${formatDate(item.scanned_at)} — ${item.summary.security_score}/100`}><strong>{item.summary.security_score}</strong><div className="history-track"><div style={{height: `${item.summary.security_score}%`}}/></div><small>{new Date(item.scanned_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</small></div>)}</div> : <p className="muted">Динамика появится после второго сканирования.</p>}</section>
       </div>
     </div>
     {accounts.length > 0 && <details className="data-note"><summary>Как читать эти данные</summary><p>Показатели относятся к последнему сканированию. Изменения в AD появятся после повторного запуска. Отсутствие наблюдаемого входа само по себе не означает, что новый аккаунт неактивен.</p></details>}
@@ -498,9 +499,9 @@ export default function App() {
         {page === 'detail' && detail && <AccountDetails account={detail} riskThresholds={dashboard.risk_thresholds} inactiveDays={dashboard.thresholds?.inactive_days} onBack={() => setPage('accounts')}/>}
         {page === 'policy' && <DomainPolicy dashboard={dashboard}/>}
         {page === 'authentication' && <Authentication authentication={authentication} dashboard={dashboard}/>}
-        {page === 'history' && <ScanHistory scans={scans} selectedScanId={selectedScanId} onSelect={setSelectedScanId} recentRun={recentRun}/>}
+        {page === 'history' && <ScanHistory scans={scans} selectedScanId={selectedScanId} onSelect={setSelectedScanId} recentRun={recentRun} riskThresholds={dashboard.risk_thresholds}/>}
         {page === 'settings' && <Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} onSave={saveThresholds} saving={saving}/>}
         </div></div>
-      </> : page === 'settings' ? <div className="page-content"><Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} onSave={saveThresholds} saving={saving}/></div> : page === 'history' ? <div className="page-content"><ScanHistory scans={scans} selectedScanId={selectedScanId} onSelect={setSelectedScanId} recentRun={recentRun}/></div> : <Empty title="Нет результатов" body="Запустите анализ, чтобы увидеть результаты. Настройки подключения доступны в разделе «Подключение»."/>}</div>
+      </> : page === 'settings' ? <div className="page-content"><Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} onSave={saveThresholds} saving={saving}/></div> : page === 'history' ? <div className="page-content"><ScanHistory scans={scans} selectedScanId={selectedScanId} onSelect={setSelectedScanId} recentRun={recentRun} riskThresholds={thresholds}/></div> : <Empty title="Нет результатов" body="Запустите анализ, чтобы увидеть результаты. Настройки подключения доступны в разделе «Подключение»."/>}</div>
     </main></div>
 }
