@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api.js'
 
 const severityLabels = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', safe: 'Без риска' }
@@ -8,21 +8,17 @@ function Badge({ level }) {
   return <span className={`badge badge-${level}`}>{severityLabels[level] ?? level}</span>
 }
 
+// Google Material Icons, bundled locally under the Apache 2.0 license.
 function Icon({ name, size = 20 }) {
-  const paths = {
-    radar: <><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12 18.4 5.6"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></>,
-    dashboard: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
-    shield: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></>,
-    users: <><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2"/><path d="M17 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 5v1"/></>,
-    settings: <><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="#0b1220"/><circle cx="15" cy="17" r="2" fill="#0b1220"/></>,
-    arrow: <path d="m9 18 6-6-6-6"/>,
-    download: <><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3"/></>,
-    refresh: <><path d="M20 11a8 8 0 1 0-2 6"/><path d="M20 4v7h-7"/></>,
-    search: <><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></>,
-    chevron: <path d="m6 9 6 6 6-6"/>,
-    server: <><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01" strokeWidth="3"/></>,
-  }
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
+  return <span className="icon" style={{ width: size, height: size, '--icon': `url(/icons/${name === 'radar' ? 'shield' : name}.svg)` }} aria-hidden="true" />
+}
+
+function ShieldScene() {
+  return <div className="shield-scene" aria-hidden="true">
+    <div className="scene-grid"/><div className="orbit orbit-one"/><div className="orbit orbit-two"/>
+    <div className="shield-object">{Array.from({ length: 9 }, (_, i) => <div className="shield-layer" key={i} style={{ transform: `translateZ(${i * 2}px)` }}/>) }<div className="shield-face"><Icon name="shield" size={64}/></div></div>
+    <div className="scene-cube cube-one"><i/><i/><i/></div><div className="scene-cube cube-two"><i/><i/><i/></div>
+  </div>
 }
 
 function Empty({ title, body }) {
@@ -30,7 +26,7 @@ function Empty({ title, body }) {
 }
 
 function Metric({ label, value, tone, helper }) {
-  return <div className="metric"><div className="metric-label">{label}</div><div className={`metric-value ${tone ?? ''}`}>{value}</div>{helper && <div className="metric-helper">{helper}</div>}</div>
+  return <div className={`metric metric-${label.toLowerCase()}`}><div className="metric-icon"><Icon name="shield" size={22}/></div><div className="metric-label">{label}</div><div className={`metric-value ${tone ?? ''}`}>{value}</div>{helper && <div className="metric-helper">{helper}</div>}</div>
 }
 
 function Dashboard({ dashboard, accounts, scans, onOpenAccount }) {
@@ -38,20 +34,21 @@ function Dashboard({ dashboard, accounts, scans, onOpenAccount }) {
   const maxCategory = Math.max(...(dashboard.categories ?? []).map(item => item.count), 1)
   const history = scans.filter(item => item.source === dashboard.source).slice(0, 8).reverse()
   return <>
-    <div className="section-head"><div><div className="eyebrow">Обзор</div><h1>Состояние Active Directory</h1><p>Приоритеты последнего сканирования и учётные записи, требующие проверки.</p></div></div>
+    <div className="dashboard-intro"><div><h1>Обзор безопасности</h1><p>Риски Active Directory и аккаунты, требующие внимания.</p></div></div>
     <div className="overview-grid">
-      <section className="score-card"><div className="score-card-top"><span>AD Security Score</span><Icon name="shield" size={23}/></div><div className="score-number">{dashboard.security_score}<span>/100</span></div><div className="score-track"><div style={{width: `${dashboard.security_score}%`}} /></div><p>100 означает минимальный выявленный риск. Оценка основана на среднем риске аккаунтов и политики домена.</p></section>
+      <section className="score-card"><div className="score-ring" title="100 означает минимальный выявленный риск. Оценка основана на среднем риске аккаунтов и политики домена." style={{ '--score': `${dashboard.security_score}%` }}><div><strong>{dashboard.security_score}</strong><span>/ 100</span></div></div><div className="score-copy"><span className="metric-label">Security Score</span><h2>Состояние домена</h2><p>Чем выше оценка,<br/>тем меньше рисков</p><span className="score-caption">AD SECURITY</span></div></section>
       <Metric label="Critical" value={dashboard.findings.critical} tone="danger" helper="Немедленная проверка" />
       <Metric label="High" value={dashboard.findings.high} tone="warning" helper="Высокий приоритет" />
       <Metric label="Medium" value={dashboard.findings.medium} tone="neutral" helper="Плановые проверки" />
       <Metric label="Low" value={dashboard.findings.low} tone="neutral" helper="Замечания" />
     </div>
     <div className="quick-stats"><span><strong>{dashboard.total_users}</strong> аккаунтов проверено</span><span><strong>{dashboard.inactive_accounts ?? '—'}</strong> неактивных</span><span><strong>{dashboard.service_accounts}</strong> сервисных</span><span><strong>{dashboard.privileged_accounts}</strong> привилегированных</span><span><strong>{dashboard.finding_count}</strong> находок</span></div>
-    <div className="two-col">
+    <div className="dashboard-panels">
+      <section className="panel distribution-panel"><div className="panel-head"><div><h2>Распределение рисков</h2><p>Находки по уровню критичности</p></div><span className="count-pill">{dashboard.finding_count} находок</span></div><div className="distribution-chart">{['critical', 'high', 'medium', 'low'].map(level => <div className={`distribution-column distribution-${level}`} key={level}><div className="distribution-track"><div className="distribution-bar" style={{height: `${(dashboard.findings[level] / Math.max(...['critical', 'high', 'medium', 'low'].map(key => dashboard.findings[key]), 1)) * 85}%`}}><strong>{dashboard.findings[level]}</strong></div></div><span>{severityLabels[level]}</span></div>)}</div><div className="chart-caption"> Данные последнего завершённого сканирования</div></section>
       <section className="panel"><div className="panel-head"><div><h2>Наиболее рискованные аккаунты</h2><p>Откройте карточку, чтобы увидеть причины и рекомендации.</p></div></div>
-        {top.length ? <div className="top-list">{top.map((item, index) => <button className="top-row" key={item.id} onClick={() => onOpenAccount(item.id)}><span className="top-rank">{String(index + 1).padStart(2, '0')}</span><span className="top-person"><strong>{item.username}</strong><small>{item.display_name}</small></span><Badge level={item.risk_level}/><strong className="top-score">{item.risk_score}</strong><Icon name="arrow" size={17}/></button>)}</div> : <Empty title="Рисков нет" body="После сканирования здесь появятся аккаунты с наибольшим риском."/>}
+        {top.length ? <div className="top-list">{top.map(item => <button className="top-row" key={item.id} onClick={() => onOpenAccount(item.id)}><span className={`top-rank avatar-${item.risk_level}`}><Icon name="users" size={19}/></span><span className="top-person"><strong>{item.username}</strong><small>{item.display_name}</small></span><Badge level={item.risk_level}/><strong className="top-score">{item.risk_score}</strong><Icon name="arrow" size={17}/></button>)}</div> : <Empty title="Рисков нет" body="После сканирования здесь появятся аккаунты с наибольшим риском."/>}
       </section>
-      <section className="panel"><div className="panel-head"><div><h2>Категории рисков</h2><p>Наиболее частые срабатывания правил.</p></div></div>
+      <section className="panel category-panel"><div className="panel-head"><div><h2>Категории рисков</h2><p>Наиболее частые срабатывания правил.</p></div></div>
         {dashboard.categories?.length ? <div className="category-list">{dashboard.categories.slice(0, 6).map(item => <div className="category" key={item.rule_id}><div><span>{friendlyRule(item.rule_id)}</span><strong>{item.count}</strong></div><div className="category-track"><div style={{width: `${Math.max(7, item.count / maxCategory * 100)}%`}}/></div></div>)}</div> : <Empty title="Категорий нет" body="В этом сканировании проблемы не обнаружены."/>}
       </section>
     </div>
@@ -118,7 +115,37 @@ function Settings({ connection, onTest, testing, thresholds, onThresholdChange, 
 function formatDate(date) { return date ? new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(date)) : 'Нет данных' }
 
 export default function App() {
-  const [page, setPage] = useState('dashboard')
+  const [page, setRenderedPage] = useState('dashboard')
+  const [targetPage, setTargetPage] = useState('dashboard')
+  const [transition, setTransition] = useState('enter')
+  const [direction, setDirection] = useState(1)
+  const transitionTimer = useRef(null)
+  const pageOrder = ['dashboard', 'findings', 'accounts', 'policy', 'settings']
+  const pageIndex = key => pageOrder.indexOf(key === 'detail' ? 'accounts' : key)
+
+  function setPage(nextPage, nextAccountId = null) {
+    clearTimeout(transitionTimer.current)
+    setTargetPage(nextPage)
+    setDirection(pageIndex(nextPage) >= pageIndex(page) ? 1 : -1)
+    if (nextPage === page) {
+      setAccountId(nextAccountId)
+      setTransition('enter')
+      return
+    }
+    const commit = () => {
+      setAccountId(nextAccountId)
+      setRenderedPage(nextPage)
+      setTransition('enter')
+    }
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      commit()
+    } else {
+      setTransition('exit')
+      transitionTimer.current = setTimeout(commit, 200)
+    }
+  }
+
+  useEffect(() => () => clearTimeout(transitionTimer.current), [])
   const [accountId, setAccountId] = useState(null)
   const [dashboard, setDashboard] = useState(null)
   const [findings, setFindings] = useState([])
@@ -150,7 +177,7 @@ export default function App() {
     try {
       const result = await api('/scans', { method: 'POST', body: JSON.stringify({ source, ...thresholds, ...(source === 'ldap' ? { ldap_password: ldapPassword } : {}) }) })
       await refresh()
-      setPage('dashboard'); setAccountId(null)
+      setPage('dashboard')
       setNotice(`Сканирование завершено: ${result.users_scanned} аккаунтов, ${result.findings_found} находок`)
     } catch (e) { setError(e.message) } finally { setScanning(false) }
   }
@@ -161,21 +188,25 @@ export default function App() {
     catch (e) { setError(e.message) } finally { setTesting(false) }
   }
 
-  function openAccount(id) { if (id === '__domain__') { setPage('policy'); return } setAccountId(id); setPage('detail') }
+  function openAccount(id) { if (id === '__domain__') { setPage('policy'); return } setPage('detail', id) }
   const selectedAccount = accounts.find(item => item.id === accountId)
   const detail = selectedAccount ? { ...selectedAccount, findings: findings.filter(item => item.account_id === accountId) } : null
   const nav = [{ key: 'dashboard', label: 'Обзор', icon: 'dashboard' }, { key: 'findings', label: 'Риски', icon: 'shield' }, { key: 'accounts', label: 'Аккаунты', icon: 'users' }, { key: 'policy', label: 'Политика домена', icon: 'shield' }, { key: 'settings', label: 'Подключение', icon: 'settings' }]
 
-  return <div className="app-shell"><aside className="sidebar"><div className="brand"><div className="brand-mark"><Icon name="radar" size={23}/></div><div><strong>Identity Risk</strong><span>RADAR</span></div></div><div className="nav-label">Рабочая область</div><nav aria-label="Основная навигация">{nav.map(item => <button key={item.key} onClick={() => { setPage(item.key); setAccountId(null) }} className={`nav-link ${page === item.key || (page === 'detail' && item.key === 'accounts') ? 'active' : ''}`}><Icon name={item.icon} size={19}/><span>{item.label}</span></button>)}</nav><div className="sidebar-bottom"><span className="live-dot"/> {dashboard?.source === 'ldap' ? 'Данные Active Directory' : 'Демонстрационные данные'}</div></aside>
-    <main className="main"><header className="topbar"><div className="breadcrumb">Infrastructure Risk Radar <span>/</span> Identity</div><div className="top-actions"><label className="source-select"><span>Источник</span><select value={source} onChange={e => setSource(e.target.value)}><option value="demo">Демо</option><option value="ldap" disabled={!connection?.configured}>Active Directory</option></select><Icon name="chevron" size={15}/></label><button className="scan-button" disabled={scanning} onClick={runScan}><Icon name="refresh" size={17}/>{scanning ? 'Сканирование…' : 'Запустить анализ'}</button></div></header>
-      <div className="content">{error && <div className="alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Закрыть">×</button></div>}{notice && <div className="notice" role="status">{notice}</div>}{loading ? <div className="loading">Загрузка результатов…</div> : dashboard ? <>
-        <div className="scan-meta"><span className="meta-dot"/><span>{sourceLabels[dashboard.source]} · Сканирование {formatDate(dashboard.scanned_at)}</span><a href="/api/export/csv" className="export-link"><Icon name="download" size={17}/> Скачать CSV</a></div>
+  return <div className="app-shell"><aside className="sidebar"><div className="brand"><div><strong>Identity Risk</strong><span>Security workspace</span></div></div><div className="nav-label">Рабочая область</div><nav aria-label="Основная навигация">{nav.map(item => <button key={item.key} onClick={() => setPage(item.key)} aria-current={targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'page' : undefined} className={`nav-link ${targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'active' : ''}`}><Icon name={item.icon} size={19}/><span>{item.label}</span></button>)}</nav><div className="sidebar-footer"><div className="sidebar-visual"><Icon name="shield" size={28}/><span>Видеть риски.<br/><strong>Защищать главное.</strong></span></div><div className="sidebar-bottom"><div><strong>{dashboard ? (dashboard.source === 'ldap' ? 'Active Directory' : 'Демо-режим') : 'Нет данных'}</strong><small>{dashboard ? 'Источник сканирования' : 'Ожидание сканирования'}</small></div><Icon name="server" size={18}/></div><div className="workspace-version">IDENTITY RISK RADAR <span>v0.1</span></div></div></aside>
+    <main className="main"><header className="topbar"><div className="breadcrumb">Рабочая область <span>/</span> <strong>{page === 'detail' ? 'Карточка аккаунта' : nav.find(item => item.key === page)?.label}</strong></div><div className="top-actions"><label className="source-select"><span>Источник</span><select value={source} onChange={e => setSource(e.target.value)}><option value="demo">Демо</option><option value="ldap" disabled={!connection?.configured}>Active Directory</option></select><Icon name="chevron" size={15}/></label><button className="scan-button" disabled={scanning} onClick={runScan}><Icon name="refresh" size={17}/>{scanning ? 'Сканирование…' : 'Запустить анализ'}</button></div></header>
+      <div className="content" style={{ '--page-direction': direction }}>{error && <div className="alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Закрыть">×</button></div>}{notice && <div className="notice" role="status">{notice}</div>}{loading ? <div className="loading">Загрузка результатов…</div> : dashboard ? <>
+        <div className="scan-meta"><span>{sourceLabels[dashboard.source]} · Сканирование {formatDate(dashboard.scanned_at)}</span><a href="/api/export/csv" className="export-link"><Icon name="download" size={17}/> Скачать CSV</a></div>
+        <div className="page-stage" data-page={targetPage}>
+        <div className="scene-lane" aria-hidden="true"><div className="scene-traveler" style={{ '--scene-step': pageIndex(targetPage) }}><ShieldScene/></div></div>
+        <div key={page} className={`page-content page-${transition}`} inert={transition === 'exit' ? true : undefined}>
         {page === 'dashboard' && <Dashboard dashboard={dashboard} accounts={accounts} scans={scans} onOpenAccount={openAccount}/>}
         {page === 'findings' && <Findings findings={findings} onOpenAccount={openAccount}/>}
         {page === 'accounts' && <Accounts accounts={accounts} onOpenAccount={openAccount}/>}
         {page === 'detail' && detail && <AccountDetails account={detail} onBack={() => setPage('accounts')}/>}
         {page === 'policy' && <DomainPolicy dashboard={dashboard}/>}
         {page === 'settings' && <Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} ldapPassword={ldapPassword} onPasswordChange={setLdapPassword}/>}
+        </div></div>
       </> : <Empty title="Нет результатов" body="Запустите демонстрационное сканирование, чтобы увидеть анализ."/>}</div>
     </main></div>
 }
