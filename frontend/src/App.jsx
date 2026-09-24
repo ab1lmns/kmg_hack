@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, downloadCsv, setAccessToken } from './api.js'
+import { ScanHistory, ScanProgress } from './ScanExperience.jsx'
 
 const severityLabels = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', safe: 'Без риска' }
 const severityPlain = { critical: 'Критично', high: 'Высокий риск', medium: 'Средний риск', low: 'Низкий риск' }
@@ -355,7 +356,7 @@ export default function App() {
   const [transition, setTransition] = useState('enter')
   const [direction, setDirection] = useState(1)
   const transitionTimer = useRef(null)
-  const pageOrder = ['dashboard', 'findings', 'accounts', 'computers', 'policy', 'authentication', 'settings']
+  const pageOrder = ['dashboard', 'findings', 'accounts', 'computers', 'policy', 'authentication', 'history', 'settings']
   const pageIndex = key => pageOrder.indexOf(key === 'detail' ? 'accounts' : key)
 
   function setPage(nextPage, nextAccountId = null) {
@@ -388,6 +389,8 @@ export default function App() {
   const [computers, setComputers] = useState([])
   const [authentication, setAuthentication] = useState(null)
   const [scans, setScans] = useState([])
+  const [selectedScanId, setSelectedScanId] = useState(null)
+  const [recentRun, setRecentRun] = useState(null)
   const [comparison, setComparison] = useState(null)
   const [connection, setConnection] = useState(null)
   const [thresholds, setThresholds] = useState({})
@@ -440,12 +443,13 @@ export default function App() {
   }
 
   async function runScan() {
-    setScanning(true); setScanStartedAt(new Date()); setError(null)
+    setScanning(true); setScanStartedAt(new Date()); setError(null); setRecentRun(null)
     try {
       const result = await api('/scans', { method: 'POST', body: JSON.stringify({ source, ...thresholds }) })
-      await refresh()
-      setPage('dashboard')
-      setNotice(`Сканирование завершено за ${result.duration_ms} мс: ${result.users_scanned} аккаунтов, ${result.groups_scanned} групп, ${result.findings_found} находок`)
+      setRecentRun({ ...result, source })
+      setSelectedScanId(result.scan_id)
+      setPage('history')
+      try { await refresh() } catch (e) { setError(`Анализ сохранён, но не удалось обновить результаты: ${e.message}`) }
     } catch (e) { setError(e.message) } finally { setScanning(false); setScanStartedAt(null) }
   }
 
@@ -464,17 +468,17 @@ export default function App() {
   function openAccount(id, type) { if (id === '__domain__' || type === 'domain' || type === 'policy') { setPage('policy'); return } if (type === 'computer' || computers.some(item => item.id === id)) { setPage('computers'); return } if (type === 'authentication' || !accounts.some(item => item.id === id)) { setPage('authentication'); return } setPage('detail', id) }
   const selectedAccount = accounts.find(item => item.id === accountId)
   const detail = selectedAccount ? { ...selectedAccount, findings: findings.filter(item => item.account_id === accountId) } : null
-  const nav = [{ key: 'dashboard', label: 'Обзор', icon: 'dashboard' }, { key: 'findings', label: 'Риски', icon: 'shield' }, { key: 'accounts', label: 'Аккаунты', icon: 'users' }, { key: 'computers', label: 'Компьютеры', icon: 'server' }, { key: 'policy', label: 'Политика домена', icon: 'shield' }, { key: 'authentication', label: 'Аутентификация', icon: 'shield' }, { key: 'settings', label: 'Подключение', icon: 'settings' }]
+  const nav = [{ key: 'dashboard', label: 'Обзор', icon: 'dashboard' }, { key: 'findings', label: 'Риски', icon: 'shield' }, { key: 'accounts', label: 'Аккаунты', icon: 'users' }, { key: 'computers', label: 'Компьютеры', icon: 'server' }, { key: 'policy', label: 'Политика домена', icon: 'shield' }, { key: 'authentication', label: 'Аутентификация', icon: 'shield' }, { key: 'history', label: 'История', icon: 'history' }, { key: 'settings', label: 'Подключение', icon: 'settings' }]
 
   if (auth === null) return <div className="loading">Проверяем доступ…</div>
   if (auth === 'error') return <div className="login-page"><section className="panel login-panel"><h1>Сервис недоступен</h1><p>{loginError}</p></section></div>
   if (auth === 'login') return <div className="login-page"><form className="panel login-panel" onSubmit={signIn}><h1>Identity Risk</h1><p>Вход для участников команды</p><label>Логин<input autoComplete="username" value={loginName} onChange={e => setLoginName(e.target.value)} required/></label><label>Пароль<input type="password" autoComplete="current-password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} required/></label>{loginError && <p className="alert" role="alert">{loginError}</p>}<button className="primary-button" disabled={loggingIn}>{loggingIn ? 'Входим…' : 'Войти'}</button></form></div>
 
   return <div className="app-shell"><aside className="sidebar"><div className="brand"><div><strong>Identity Risk</strong><span>Security workspace</span></div></div><div className="nav-label">Рабочая область</div><nav aria-label="Основная навигация">{nav.map(item => <button key={item.key} onClick={() => setPage(item.key)} aria-current={targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'page' : undefined} className={`nav-link ${targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'active' : ''}`}><Icon name={item.icon} size={19}/><span>{item.label}</span></button>)}</nav></aside>
-    <main className="main"><header className="topbar"><div className="breadcrumb">Рабочая область <span>/</span> <strong>{page === 'detail' ? 'Карточка аккаунта' : nav.find(item => item.key === page)?.label}</strong></div><div className="top-actions"><label className="source-select"><span>Источник</span><select value={source} onChange={e => setSource(e.target.value)}><option value="demo">Демо</option><option value="ldap" disabled={!connection?.configured}>Active Directory</option></select><Icon name="chevron" size={15}/></label><button className="scan-button" disabled={scanning || (source === 'ldap' && (!connection?.configured || connection.password_required))} onClick={runScan}><Icon name="refresh" size={17}/>{scanning ? 'Чтение AD и анализ…' : 'Запустить анализ'}</button>{auth === 'signed-in' && <button className="logout-button" onClick={signOut}>Выйти</button>}</div></header>
-      <div className="content" style={{ '--page-direction': direction }}>{scanning && <div className="notice" role="status">Анализ запущен {scanStartedAt?.toLocaleTimeString('ru-RU')} · Идёт чтение каталога и расчёт рисков. Результат появится после завершения.</div>}{error && <div className="alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Закрыть">×</button></div>}{notice && <div className="notice" role="status">{notice}</div>}{loading ? <div className="loading">Загрузка результатов…</div> : dashboard ? <>
-        {dashboard.source === 'demo' && <div className="notice" role="status">Демо-данные: этот результат не отражает состояние Active Directory. Выберите Active Directory и запустите анализ для живых данных.</div>}
-        <div className="scan-meta"><span>{sourceLabels[dashboard.source]} · Сканирование {formatDateTime(dashboard.scanned_at)}{dashboard.duration_ms != null ? ` · ${dashboard.duration_ms} мс` : ''}</span><button onClick={() => downloadCsv().catch(e => setError(e.message))} className="export-link"><Icon name="download" size={17}/> Скачать CSV</button></div>
+    <main className="main"><header className="topbar"><div className="breadcrumb">Рабочая область <span>/</span> <strong>{page === 'detail' ? 'Карточка аккаунта' : nav.find(item => item.key === page)?.label}</strong></div><div className="top-actions"><label className="source-select"><span>Источник</span><select value={source} disabled={scanning} onChange={e => setSource(e.target.value)}><option value="demo">Демо</option><option value="ldap" disabled={!connection?.configured}>Active Directory</option></select><Icon name="chevron" size={15}/></label><button className="scan-button" disabled={scanning || (source === 'ldap' && (!connection?.configured || connection.password_required))} onClick={runScan}><Icon name="refresh" size={17}/>{scanning ? 'Анализ выполняется…' : 'Запустить анализ'}</button>{auth === 'signed-in' && <button className="logout-button" onClick={signOut}>Выйти</button>}</div></header>
+      <div className="content" style={{ '--page-direction': direction }}>{scanning && <ScanProgress startedAt={scanStartedAt} source={source}/>} {error && <div className="alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Закрыть">×</button></div>}{notice && <div className="notice" role="status">{notice}</div>}{loading ? <div className="loading">Загрузка результатов…</div> : dashboard ? <>
+        {page !== 'history' && dashboard.source === 'demo' && <div className="notice" role="status">Демо-данные: этот результат не отражает состояние Active Directory. Выберите Active Directory и запустите анализ для живых данных.</div>}
+        {page !== 'history' && <div className="scan-meta"><span>{sourceLabels[dashboard.source]} · Сканирование {formatDateTime(dashboard.scanned_at)}{dashboard.duration_ms != null ? ` · ${dashboard.duration_ms} мс` : ''}</span><button onClick={() => downloadCsv().catch(e => setError(e.message))} className="export-link"><Icon name="download" size={17}/> Скачать CSV</button></div>}
         <div className="page-stage" data-page={targetPage}>
         <div key={page} className={`page-content page-${transition}`} inert={transition === 'exit' ? true : undefined}>
         {page === 'dashboard' && <Dashboard dashboard={dashboard} accounts={accounts} scans={scans} comparison={comparison} onOpenAccount={openAccount}/>}
@@ -484,8 +488,9 @@ export default function App() {
         {page === 'detail' && detail && <AccountDetails account={detail} riskThresholds={dashboard.risk_thresholds} inactiveDays={dashboard.thresholds?.inactive_days} onBack={() => setPage('accounts')}/>}
         {page === 'policy' && <DomainPolicy dashboard={dashboard}/>}
         {page === 'authentication' && <Authentication authentication={authentication} dashboard={dashboard}/>}
+        {page === 'history' && <ScanHistory scans={scans} selectedScanId={selectedScanId} onSelect={setSelectedScanId} recentRun={recentRun}/>}
         {page === 'settings' && <Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} onSave={saveThresholds} saving={saving}/>}
         </div></div>
-      </> : page === 'settings' ? <div className="page-content"><Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} onSave={saveThresholds} saving={saving}/></div> : <Empty title="Нет результатов" body="Запустите анализ, чтобы увидеть результаты. Настройки подключения доступны в разделе «Подключение»."/>}</div>
+      </> : page === 'settings' ? <div className="page-content"><Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} onSave={saveThresholds} saving={saving}/></div> : page === 'history' ? <div className="page-content"><ScanHistory scans={scans} selectedScanId={selectedScanId} onSelect={setSelectedScanId} recentRun={recentRun}/></div> : <Empty title="Нет результатов" body="Запустите анализ, чтобы увидеть результаты. Настройки подключения доступны в разделе «Подключение»."/>}</div>
     </main></div>
 }
