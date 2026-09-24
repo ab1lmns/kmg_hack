@@ -82,15 +82,15 @@
 | Настройки/валидация/сохранение | PASS | UNIT VERIFIED: границы и Medium < High < Critical, API persistence; UI build |
 | Audit действий, включая Event Log/auth | PASS | LIVE VERIFIED: scan/connection/export; scan пишет event/auth status; секреты не логируются по code review |
 | CSV: объект, score, severity, category, source, evidence | PASS | LIVE VERIFIED: 45 строк, 14 колонок, UTF-8 BOM, `;` delimiter; Microsoft Excel открыл русский текст и колонки корректно |
-| SQLite schema/version, corruption, atomicity, concurrency | PASS | UNIT VERIFIED: schema v2, WAL, транзакции, восстановление; LIVE VERIFIED: persisted scan после restart |
+| SQLite schema/version, corruption, atomicity, concurrency | PASS | UNIT VERIFIED: schema v2, WAL, транзакции, восстановление; LIVE VERIFIED: два scan на Droplet в одной базе, история сохранилась после systemd restart |
 | Производительность/batch LDAP/timings | PASS | LIVE VERIFIED: scan около 7 с на 42 user/57 groups/1 computer и 1076 Security events; timings API |
 | Ошибки DC/credentials/timeout/malformed DB/settings/partial events | PARTIAL | Validation/storage/collector UNIT VERIFIED; frontend edge cases пройдены на локальных API fixtures, реальный DC outage не создавался |
-| Backend read-only и минимальные права | PASS | LIVE VERIFIED: LDAP reader только Domain Users; event reader в lab OU состоит из Domain Users и builtin Event Log Readers, без admin token; оба используются обычным scan |
+| Backend read-only и минимальные права | PASS | LIVE VERIFIED: Droplet LDAP reader только Domain Users; event reader в lab OU состоит из Domain Users и builtin Event Log Readers, без admin token; оба используются обычным scan |
 | Пароли/секреты не в API/SQLite/CSV/log | PASS | Code review + live response/CSV review; `.env` ignored, mode 600 |
-| Только локальная веб-привязка / Tailscale | PASS | LIVE VERIFIED: uvicorn 127.0.0.1, LDAP через Tailscale; новых публичных портов нет |
+| Только локальная веб-привязка / Tailscale | PASS | LIVE VERIFIED: Droplet uvicorn `127.0.0.1:8011`, Tailscale Serve HTTPS только внутри tailnet, публичный порт 8011 недоступен |
 | Frontend build и отсутствие API regression | PASS | Vite build; E2E старых/новых API, повторный desktop/mobile browser QA; стиль/layout не менялся |
 | Визуальный QA всех страниц | PASS | LIVE BROWSER VERIFIED: 7 страниц desktop/mobile, no scan/empty/search/loading/API/LDAP/event error/timeout/invalid Settings, без overflow/React exceptions |
 
 ## Вывод
 
-Обязательный MVP остаётся **8/8 PASS**. Для интерактивного входа теперь есть проверка фактических прав на DC, но положительный live finding и остальные хосты не проверены. Event Log читает отдельная минимально привилегированная учётная запись; обычный backend показывает `pass` и ноль auth findings при отсутствии кандидатов. Сценарии старых логинов/паролей, SIDHistory, duplicate SPN и delegation не подделывались ради красивого live результата. Детали и текущий scan — в `docs/FINAL_AUDIT.md`.
+Обязательный MVP остаётся **8/8 PASS**. Командный стенд на DigitalOcean проверен live scan, перезапуском и HTTPS E2E через Tailscale; один backend/SQLite для всех участников. Для интерактивного входа теперь есть проверка фактических прав на DC, но положительный live finding и остальные хосты не проверены. Event Log читает отдельная минимально привилегированная учётная запись; обычный backend показывает `pass` и ноль auth findings при отсутствии кандидатов. Сценарии старых логинов/паролей, SIDHistory, duplicate SPN и delegation не подделывались ради красивого live результата. Детали и текущий scan — в `docs/FINAL_AUDIT.md`.

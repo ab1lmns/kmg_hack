@@ -1,6 +1,6 @@
 # Identity Risk Analyzer — финальный продуктовый аудит
 
-Дата: 2026-09-24. Основание: оригинальный DOCX ТЗ, полный разбор кода и live `infraradar.test`. Git checkpoint утверждённого frontend: `daeb4e1`. Подробная матрица: `docs/TZ_COMPLIANCE.md`. Работа над demo/presentation не выполнялась.
+Дата: 2026-09-24. Основание: оригинальный DOCX ТЗ, полный разбор кода и live `infraradar.test`. Git checkpoint утверждённого frontend: `daeb4e1`. Подробная матрица: `docs/TZ_COMPLIANCE.md`. Демонстрационные AD-данные обновлены в пределах lab OU.
 
 ## Соответствие ТЗ
 
@@ -16,6 +16,14 @@ Windows-хост `DANIKEK` через Tailscale `100.126.179.32`; VM `InfraRadar
 После checkpoint `cedc9cc` обновлены только объекты `OU=InfraRadarLab`: 33 вымышленных сотрудника (26 обычных и 7 `adm.*`), 7 сервисных `svc_*`, 2 технических reader. Сравнение сохранённых scan подтвердило: все 32 прежних SID, даты установки паролей, групповые членства, SPN и риск-флаги сохранены; добавлено 10 обычных сотрудников. PSO по-прежнему применяется к `m.kalayeva`. Mac live scan `66483f77-4322-4daf-a6ca-677034addb8b`: **42 lab users, 57 groups, 1 computer, 1 FGPP, 45 findings**, Critical **1**, High **28**, Medium **10**, Low **6**, AD Security Score **71/100**, около 7 с (LDAP и Event Log, 24 ч). Все источники имеют `pass`; Authentication: 1076 событий, 50 ошибок пароля, **0 brute force/password spray findings**. Кроме двух новых service Password Never Expires findings, количество по каждому правилу и severity совпадает со scan до обновления данных; изменение AD Security Score относительно исходного scan объясняется 10 новыми аккаунтами без находок и двумя новыми service Password Never Expires findings.
 
 Путь `adm.a.sadykov → Domain Admins` подтверждён как Critical. Делегирование `IR-Lab-Admins` относится только к `OU=InfraRadarLab` и было сверено с ACL lab OU, поэтому вложенный путь `svc_backup` оценивается как High, а не Domain Admin. Доменная политика прочитана полностью: min length 0, complexity on, history 0, max age 42d, min age 0, lockout threshold 0. Длительность при нулевом threshold не считается защитой.
+
+## Командный стенд DigitalOcean
+
+Отдельный Ubuntu 24.04 Droplet `identity-risk-team` подключён к тому же tailnet (`100.93.111.98`). `identity-risk.service` запускает один uvicorn worker от непривилегированного `identityrisk` на `127.0.0.1:8011`; SQLite остаётся в WAL. Tailscale Serve публикует **только внутри tailnet** https://identity-risk-team.tail54a46d.ts.net/ и проксирует frontend production build и API под одним origin. Доступ к `46.101.134.38:8011` с Mac отклонён. Уже работавшие на Droplet nginx и другие приложения не перенастраивались.
+
+Первый scan **с backend на Droplet** `d0d2d7cf-c352-468d-a8f4-1f1c03ba2630`: 42 lab users, 45 findings, score 71, LDAP и Security Event Log `pass`. После `systemctl restart` повторный scan `0b63f251-17bb-4e61-8186-eb9b8cfe73a8` дал те же 42/45/71; общая SQLite сохранила оба scan. `deploy/check.py` проверил health, живое LDAP-чтение, Event Log, account detail, Risks, Computers, Authentication, FGPP, CSV, frontend и SQLite. Тесты в серверном venv: **27/27 PASS**. С Mac через HTTPS проверены все семь страниц на 1440/390 px, карточка `adm.a.sadykov`, Risks и отсутствие React exceptions.
+
+Секреты находятся только в серверном `backend/.env` и отдельном ключе SSH, оба mode 600; в Git/API/CSV/audit они не попали. Снимок интерактивных прав DC остаётся ручным и действует 60 минут; его последующее истечение честно даст `not_evaluated`, пока снимок не обновлён. Security Event Log collector от него не зависит.
 
 ## Новые проверки и доказательства
 
@@ -35,7 +43,7 @@ PSO по схеме AD хранится в `CN=Password Settings Container,CN=Sy
 
 ## Frontend и API
 
-Утверждённый визуальный стиль, Dashboard/Risks/Accounts/Domain Policy/Connection сохранены. Добавлены поля в существующие панели, FGPP, настройки порогов, разделы Computers и Authentication. Старые API запросы и новые `/api/computers`, `/api/authentication`, `/api/checks`, `/api/config`, account/computer detail, CSV отработали после backend restart. Frontend build **PASS**. Chrome headless открыл семь страниц и карточку `adm.a.sadykov` на 1440/390 px без React exceptions и горизонтального переполнения; поиск Accounts/Risks проверен. После доработок browser QA проверил no scan, пустые findings, поиск без результатов, LDAP unavailable/wrong password/timeout, Event Log unavailable/partial/not_evaluated, loading, API error и неправильные Settings на desktop/mobile без React exceptions или горизонтального переполнения. CSV с UTF-8 BOM и `;` delimiter открыт в установленном Microsoft Excel: 14 колонок, 44 строки вместе с заголовком, русский текст читается корректно. Для обычных CSV parsers нужно указать delimiter `;`.
+Утверждённый визуальный стиль, Dashboard/Risks/Accounts/Domain Policy/Connection сохранены. Добавлены поля в существующие панели, FGPP, настройки порогов, разделы Computers и Authentication. Старые API запросы и новые `/api/computers`, `/api/authentication`, `/api/checks`, `/api/config`, account/computer detail, CSV отработали после backend restart. Frontend build **PASS**. Chrome headless открыл семь страниц и карточку `adm.a.sadykov` на 1440/390 px без React exceptions и горизонтального переполнения; поиск Accounts/Risks проверен. После доработок browser QA проверил no scan, пустые findings, поиск без результатов, LDAP unavailable/wrong password/timeout, Event Log unavailable/partial/not_evaluated, loading, API error и неправильные Settings на desktop/mobile без React exceptions или горизонтального переполнения. CSV с UTF-8 BOM и `;` delimiter открыт в установленном Microsoft Excel: 14 колонок, 46 строк вместе с заголовком, русский текст читается корректно. Для обычных CSV parsers нужно указать delimiter `;`.
 
 ## Тесты, устойчивость и безопасность
 

@@ -1,6 +1,6 @@
 # Identity Risk Analyzer
 
-Локальное приложение для аудита тестового Microsoft Active Directory `infraradar.test`. React показывает данные настоящего LDAP сканирования; FastAPI собирает объекты только на чтение, вычисляет находки и оценки, хранит историю в SQLite и выгружает CSV. Рекомендации не изменяют AD.
+Приложение для аудита тестового Microsoft Active Directory `infraradar.test`. React показывает данные настоящего LDAP сканирования; FastAPI собирает объекты только на чтение, вычисляет находки и оценки, хранит историю в SQLite и выгружает CSV. Рекомендации не изменяют AD.
 
 ## Архитектура и область
 
@@ -69,7 +69,7 @@ RUN_LDAP_SMOKE=1 .venv/bin/python -m unittest discover -s tests -v
 cd ../frontend && npm run build
 ```
 
-Live scan 2026-09-24 после обновления данных: 42 lab users, 57 groups, 1 computer, 1 FGPP, 45 findings, score 71/100; 7 service Password Never Expires, 3 disabled privileged, 2 multiple-role users; Security Event Log `pass`, 0 auth findings. Подробная проверка и честные статусы в [docs/TZ_COMPLIANCE.md](docs/TZ_COMPLIANCE.md) и [docs/FINAL_AUDIT.md](docs/FINAL_AUDIT.md). Веб-приложение не имеет собственной авторизации: используйте его только локально. Security Event Log читает отдельный минимально привилегированный reader; frontend и edge cases проверены в Chrome headless на 1440/390 px.
+Live scan 2026-09-24 после обновления данных: 42 lab users, 57 groups, 1 computer, 1 FGPP, 45 findings, score 71/100; 7 service Password Never Expires, 3 disabled privileged, 2 multiple-role users; Security Event Log `pass`, 0 auth findings. Подробная проверка и честные статусы в [docs/TZ_COMPLIANCE.md](docs/TZ_COMPLIANCE.md) и [docs/FINAL_AUDIT.md](docs/FINAL_AUDIT.md). Веб-приложение не имеет собственной авторизации: используйте его только локально или через приватный Tailscale Serve. Security Event Log читает отдельный минимально привилегированный reader; frontend и edge cases проверены в Chrome headless на 1440/390 px.
 
 ## Общий командный стенд
 
