@@ -37,6 +37,8 @@ export async function downloadCsv() {
   const link = document.createElement('a')
   link.href = url
   link.download = response.headers.get('Content-Disposition')?.match(/filename="?([^";]+)"?/)?.[1] || 'identity-risk.csv'
+  document.body.appendChild(link)
   link.click()
-  URL.revokeObjectURL(url)
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }

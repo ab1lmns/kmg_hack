@@ -72,6 +72,13 @@ class AnalysisTests(unittest.TestCase):
         result = analyze(Snapshot(source="test", accounts=[account], groups=[]), inactive_days=90)
         self.assertIn("INACTIVE_ACCOUNT", {item["rule_id"] for item in result["accounts"][0]["findings"]})
 
+    def test_recent_exact_dc_logon_prevents_false_inactive(self):
+        account = Account(id="u", username="active", display_name="Active",
+                          when_created=(datetime.now(timezone.utc) - timedelta(days=200)).isoformat(),
+                          exact_last_logon=(datetime.now(timezone.utc) - timedelta(days=1)).isoformat())
+        result = analyze(Snapshot(source="test", accounts=[account], groups=[]), inactive_days=90)
+        self.assertNotIn("INACTIVE_ACCOUNT", {item["rule_id"] for item in result["accounts"][0]["findings"]})
+
     def test_old_password_uses_configured_threshold(self):
         account = Account(id="u", username="old-password", display_name="Old password",
                           password_last_set=(datetime.now(timezone.utc) - timedelta(days=100)).isoformat())

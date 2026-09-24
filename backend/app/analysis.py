@@ -226,7 +226,11 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
         has_builtin_privilege = any(item["scope"] in ("domain", "forest", "built_in")
                                     for item in privilege_details)
         privileged = bool(paths)
-        login_age = days_since(account.last_logon)
+        # A recent per-DC lastLogon is evidence of activity even if the
+        # replicated lastLogonTimestamp has not caught up yet.
+        observed_login_ages = [age for age in (days_since(account.last_logon),
+                               days_since(account.exact_last_logon)) if age is not None]
+        login_age = min(observed_login_ages) if observed_login_ages else None
         created_age = days_since(account.when_created)
         password_age = days_since(account.password_last_set)
         findings: list[dict[str, Any]] = []
@@ -243,7 +247,8 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
                       else f"Последний вход {login_age} дней назад")
             findings.append(finding(account, "INACTIVE_ACCOUNT", "Неактивная учётная запись",
                 "medium", reason, "Уточните у владельца необходимость аккаунта; отключите его, если он больше не нужен.",
-                {"last_logon": account.last_logon, "days_since_login": login_age,
+                {"last_logon": account.last_logon, "exact_last_logon_on_dc": account.exact_last_logon,
+                 "days_since_login": login_age,
                  "days_since_creation": created_age, "threshold_days": inactive_days,
                  "note": "lastLogonTimestamp обновляется с задержкой и не является точным временем последнего входа."}))
         if account.password_never_expires:
