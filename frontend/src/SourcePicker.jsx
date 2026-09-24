@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-export default function SourcePicker({ value, onChange, ldapReady, scanning, onOpenSettings }) {
+export default function SourcePicker({ ldapReady, scanning, onOpenSettings }) {
   const [open, setOpen] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
   const pickerRef = useRef(null)
@@ -41,24 +41,19 @@ export default function SourcePicker({ value, onChange, ldapReady, scanning, onO
     }
   }, [showGuide])
 
-  const select = next => { onChange(next); setOpen(false); triggerRef.current?.focus() }
   const settings = () => { setOpen(false); setShowGuide(false); onOpenSettings() }
 
   return <>
     <div className="source-picker" ref={pickerRef}>
-      <button ref={triggerRef} className="source-picker-trigger" type="button" aria-label={`Данные для следующего анализа: ${value === 'ldap' ? 'Active Directory' : 'Демо'}. Выбрать источник`} aria-expanded={open} aria-controls="source-picker-list" disabled={scanning} onClick={() => setOpen(current => !current)}>
-        Данные: {value === 'ldap' ? 'AD' : 'Демо'} <span className="source-picker-chevron" aria-hidden="true"/>
+      <button ref={triggerRef} className="source-picker-trigger" type="button" aria-label="Источники данных" aria-expanded={open} aria-controls="source-picker-list" disabled={scanning} onClick={() => setOpen(current => !current)}>
+        Источники <span className="source-picker-chevron" aria-hidden="true"/>
       </button>
       {open && <div id="source-picker-list" className="source-picker-list" aria-label="Выбор источника анализа">
         <div className="source-picker-heading">Данные для анализа</div>
-        <button className="source-picker-option" type="button" disabled={!ldapReady} aria-pressed={value === 'ldap'} onClick={() => select('ldap')}>
+        <div className="source-picker-option">
           <span><strong>Active Directory</strong><small>{ldapReady ? 'Живые данные каталога' : 'Требуется настройка подключения'}</small></span>
-          {value === 'ldap' && <span className="source-picker-selected">Выбран</span>}
-        </button>
-        <button className="source-picker-option" type="button" aria-pressed={value === 'demo'} onClick={() => select('demo')}>
-          <span><strong>Демо</strong><small>Пример данных для просмотра интерфейса</small></span>
-          {value === 'demo' && <span className="source-picker-selected">Выбран</span>}
-        </button>
+          <span className="source-picker-selected">{ldapReady ? 'Подключён' : 'Не настроен'}</span>
+        </div>
         <button className="source-picker-add" type="button" onClick={() => { setOpen(false); setShowGuide(true) }}>+ Добавить источник</button>
       </div>}
     </div>

@@ -36,8 +36,7 @@ export function ScanProgress({ startedAt, source, active }) {
 }
 
 export function ScanHistory({ scans, selectedScanId, onSelect, recentRun, riskThresholds }) {
-  const [filter, setFilter] = useState('all')
-  const visible = scans.filter(item => filter === 'all' || item.source === filter)
+  const visible = scans
   const selected = visible.find(item => item.scan_id === selectedScanId) ?? visible[0]
   const selectedIndex = selected ? scans.findIndex(item => item.scan_id === selected.scan_id) : -1
   const previous = selectedIndex >= 0 ? scans.slice(selectedIndex + 1).find(item => item.source === selected.source) : null
@@ -57,10 +56,6 @@ export function ScanHistory({ scans, selectedScanId, onSelect, recentRun, riskTh
     {scans.length ? <div className="scan-history-layout">
       <section className="panel scan-history-list">
         <div className="panel-head"><div><h2>Запуски</h2><p>Последние {scans.length} результатов</p></div></div>
-        <div className="history-filters" role="group" aria-label="Источник анализа">
-          {[['all', 'Все'], ['ldap', 'Active Directory'], ['demo', 'Демо']].map(([key, label]) =>
-            <button key={key} type="button" aria-pressed={filter === key} className={filter === key ? 'active' : ''} onClick={() => setFilter(key)}>{label}</button>)}
-        </div>
         {visible.length ? <div className="scan-history-runs">{visible.map((item, index) =>
           <button type="button" className={'scan-history-run' + (selected?.scan_id === item.scan_id ? ' active' : '')} key={item.scan_id} onClick={() => onSelect(item.scan_id)} aria-current={selected?.scan_id === item.scan_id ? 'true' : undefined}>
             <span className="scan-run-index">{String(index + 1).padStart(2, '0')}</span>

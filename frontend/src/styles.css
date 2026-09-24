@@ -786,7 +786,7 @@ td{font-size:13px;color:var(--ui-ink)}
 }
 
 /* Keep the desktop toolbar on one row, including scan metadata and actions. */
-.topbar{position:relative;z-index:20;height:72px;min-height:72px;display:flex;flex-wrap:nowrap;align-items:center;gap:14px;padding:0 22px}
+.topbar{position:relative;z-index:20;height:64px;min-height:64px;display:flex;flex-wrap:nowrap;align-items:center;gap:14px;padding:0 20px}
 .topbar .breadcrumb{flex:none;line-height:1.15}
 .topbar .scan-meta{display:flex;align-items:center;justify-content:center;gap:8px;flex:1 1 auto;min-width:0;max-width:100%;min-height:31px;margin:0;padding:4px 0 4px 12px;border-left:2px solid #518a69;background:none;color:#486a58;font-size:12px;line-height:1.3;white-space:nowrap;animation:scan-stamp .55s ease-out both}
 .topbar .scan-meta strong{color:#24553b;font-size:12px;font-weight:700}
@@ -794,6 +794,7 @@ td{font-size:13px;color:var(--ui-ink)}
 .scan-meta-duration{flex:none;margin-left:3px;padding-left:9px;border-left:1px solid #c8dfcf;color:#607b6b;font-variant-numeric:tabular-nums}
 .topbar .top-actions{display:flex;align-items:center;flex:none;flex-wrap:nowrap;gap:8px;margin-left:0;justify-content:flex-end}
 .topbar .export-link{margin:0;min-height:42px;padding:0 11px;border:1px solid var(--ui-line);border-radius:10px;background:#fff;color:var(--ui-accent);font-size:12px;gap:6px}
+.topbar .export-link{width:42px;justify-content:center;padding:0}.topbar .export-link span:not(.icon){display:none}
 .topbar .export-link:hover{background:#f0f8f2;border-color:#b8d8c5}
 .topbar .export-link:focus-visible{outline:2px solid #28745f;outline-offset:2px}
 @keyframes scan-stamp{from{opacity:.35;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
@@ -807,8 +808,6 @@ td{font-size:13px;color:var(--ui-ink)}
 .source-picker-list{position:absolute;top:calc(100% + 8px);right:0;z-index:30;width:310px;padding:9px;border:1px solid #d9e7dd;border-radius:12px;background:#fff;box-shadow:0 16px 35px #183c2c25;animation:source-menu-in .2s ease-out both}
 .source-picker-heading{padding:8px 9px 10px;color:#70867a;font-size:11px;font-weight:700}
 .source-picker-option{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:58px;padding:10px;border:0;border-radius:8px;background:#fff;text-align:left;color:var(--ui-ink)}
-.source-picker-option:hover:not(:disabled),.source-picker-option[aria-pressed="true"]{background:#edf6ef}
-.source-picker-option:disabled{cursor:not-allowed;opacity:.55}
 .source-picker-option>span:first-child{display:grid;gap:3px;min-width:0}
 .source-picker-option strong{font-size:13px;font-weight:700}.source-picker-option small{font-size:11px;line-height:1.35;color:#718578}
 .source-picker-selected{flex:none;color:#28745f;font-size:11px;font-weight:700}
@@ -831,10 +830,10 @@ td{font-size:13px;color:var(--ui-ink)}
 /* The source does not stream progress, so the line communicates activity without a percentage. */
 .scan-progress-drawer{display:grid;grid-template-rows:1fr;overflow:hidden;border-bottom:1px solid #d7e7dc;background:#f7fbf8;animation:scan-drawer-in .42s cubic-bezier(.22,1,.36,1) both}
 .scan-progress-drawer.is-leaving{animation:scan-drawer-out .32s ease-in both}
-.scan-progress{position:relative;min-height:0;display:flex;align-items:center;gap:24px;padding:15px 28px 17px;color:var(--ui-ink)}
-.scan-progress-copy{min-width:0;flex:1}
+.scan-progress{position:relative;min-height:48px;display:flex;align-items:center;gap:24px;padding:8px 22px 10px;color:var(--ui-ink)}
+.scan-progress-copy{min-width:0;flex:1;display:flex;align-items:center;gap:15px;flex-wrap:wrap}
 .scan-progress-eyebrow{display:flex;align-items:center;color:#376f53;font-size:12px;font-weight:700}
-.scan-progress h2{margin:3px 0 0;font-size:15px;font-weight:600;letter-spacing:0;color:var(--ui-ink)}
+.scan-progress h2{margin:0;font-size:13px;font-weight:600;letter-spacing:0;color:var(--ui-ink)}
 .scan-progress-time{display:flex;align-items:baseline;gap:6px;flex:none;font-variant-numeric:tabular-nums;color:var(--ui-muted)}
 .scan-progress-time strong{font-size:18px;line-height:1.1;letter-spacing:-.3px;color:#345a47}
 .scan-progress-time span{font-size:11px}
@@ -876,8 +875,8 @@ td{font-size:13px;color:var(--ui-ink)}
 @media(max-width:1000px){.scan-history-layout{grid-template-columns:1fr}.scan-history-runs{max-height:340px}}
 @media(max-width:1250px){.topbar .breadcrumb{display:none}.topbar .scan-meta{justify-content:flex-start}}
 @media(min-width:901px) and (max-width:1100px){.scan-meta-duration{display:none}.topbar .scan-meta-time{max-width:160px}}
-@media(min-width:761px) and (max-width:900px){.topbar{height:auto;min-height:72px;flex-wrap:wrap;padding:10px 18px}.topbar .scan-meta{flex:1 1 100%;justify-content:flex-start}.topbar .top-actions{width:100%;justify-content:flex-start}}
-@media(max-width:760px){.topbar{height:auto;min-height:66px;flex-wrap:wrap;gap:9px;padding:11px 16px}.topbar .scan-meta{order:0;flex:1 1 100%;justify-content:flex-start;white-space:normal;flex-wrap:wrap}.topbar .top-actions{order:1;width:100%;justify-content:flex-start;flex-wrap:wrap}.scan-progress{padding:14px 16px 16px}}
+@media(min-width:761px) and (max-width:900px){.topbar{height:auto;min-height:64px;flex-wrap:wrap;padding:8px 18px}.topbar .scan-meta{flex:1 1 100%;justify-content:flex-start}.topbar .top-actions{width:100%;justify-content:flex-start}}
+@media(max-width:760px){.topbar{height:auto;min-height:64px;flex-wrap:wrap;gap:7px;padding:9px 16px}.topbar .scan-meta{order:0;flex:1 1 100%;justify-content:flex-start;white-space:normal;flex-wrap:wrap}.topbar .top-actions{order:1;width:100%;justify-content:flex-start;flex-wrap:wrap}.scan-progress{padding:9px 16px 11px}}
 @media(max-width:640px){.scan-progress{gap:10px}.scan-progress h2{font-size:14px}.scan-progress-time strong{font-size:16px}.history-detail-top{flex-wrap:wrap}.history-severity>div{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:420px){.history-detail-metrics{gap:5px}.history-detail-metrics>div{padding:10px}.history-detail-metrics strong{font-size:19px}.history-detail-metrics span{font-size:10px}}
 @media(prefers-reduced-motion:reduce){.topbar .scan-meta,.scan-progress-drawer,.scan-progress-drawer.is-leaving,.scan-progress-track span,.source-picker-list,.source-guide{animation:none}.scan-progress-track span{width:100%;opacity:.65}.scan-history-run{transition:none}}

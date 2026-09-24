@@ -398,7 +398,7 @@ export default function App() {
   const [connection, setConnection] = useState(null)
   const [thresholds, setThresholds] = useState({})
   const [saving, setSaving] = useState(false)
-  const [source, setSource] = useState('ldap')
+  const source = 'ldap'
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState(false)
   const [scanStartedAt, setScanStartedAt] = useState(null)
@@ -408,17 +408,16 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     const [config, ldap, history] = await Promise.all([api('/config'), api('/connection/status'), api('/scans')])
-    setConnection(ldap); setScans(history); setThresholds(config)
-    if (!history.length) {
+    const adHistory = history.filter(item => item.source === 'ldap')
+    setConnection(ldap); setScans(adHistory); setThresholds(config)
+    if (!adHistory.length || history[0]?.source !== 'ldap') {
       setDashboard(null); setFindings([]); setAccounts([]); setComputers([]); setAuthentication(null); setComparison(null)
-      setSource(ldap.configured && !ldap.password_required ? 'ldap' : 'demo')
       return
     }
     const [summary, risks, users, machines, auth, delta] = await Promise.all([
       api('/dashboard'), api('/findings'), api('/accounts'), api('/computers'), api('/authentication'), api('/scans/compare'),
     ])
     setDashboard(summary); setFindings(risks); setAccounts(users); setComputers(machines); setAuthentication(auth); setComparison(delta)
-    setSource(current => current === 'demo' && summary.source === 'demo' ? 'demo' : summary.source === 'ldap' || ldap.configured ? 'ldap' : 'demo')
   }, [])
 
   useEffect(() => {
@@ -486,11 +485,10 @@ export default function App() {
     <main className="main"><header className="topbar">
       <div className="breadcrumb">Рабочая область <span>/</span> <strong>{page === 'detail' ? 'Карточка аккаунта' : nav.find(item => item.key === page)?.label}</strong></div>
       {dashboard && <div key={dashboard.scanned_at} className="scan-meta" title={`${sourceLabels[dashboard.source] ?? dashboard.source} · Сканирование ${formatDateTime(dashboard.scanned_at)}`}><strong>{sourceLabels[dashboard.source] ?? dashboard.source}</strong><span className="scan-meta-time">Сканирование {formatDateTime(dashboard.scanned_at)}</span>{dashboard.duration_ms != null && <span className="scan-meta-duration">{(dashboard.duration_ms / 1000).toFixed(1)} с</span>}</div>}
-      <div className="top-actions"><SourcePicker value={source} onChange={setSource} ldapReady={Boolean(connection?.configured && !connection?.password_required)} scanning={scanning} onOpenSettings={() => setPage('settings')}/><button className="scan-button" disabled={scanning || (source === 'ldap' && (!connection?.configured || connection.password_required))} onClick={runScan}><Icon name="refresh" size={17}/>{scanning ? 'Анализ выполняется…' : 'Запустить анализ'}</button>{dashboard && <button onClick={() => downloadCsv().catch(e => setError(e.message))} className="export-link" aria-label="Скачать результаты CSV" title="Скачать CSV"><Icon name="download" size={17}/><span>CSV</span></button>}{auth === 'signed-in' && <button className="logout-button" onClick={signOut}>Выйти</button>}</div>
+      <div className="top-actions"><SourcePicker ldapReady={Boolean(connection?.configured && !connection?.password_required)} scanning={scanning} onOpenSettings={() => setPage('settings')}/><button className="scan-button" disabled={scanning || !connection?.configured || connection.password_required} onClick={runScan}><Icon name="refresh" size={17}/>{scanning ? 'Анализ выполняется…' : 'Запустить анализ'}</button>{dashboard && <button onClick={() => downloadCsv().catch(e => setError(e.message))} className="export-link" aria-label="Скачать результаты CSV" title="Скачать CSV"><Icon name="download" size={17}/><span>CSV</span></button>}{auth === 'signed-in' && <button className="logout-button" onClick={signOut}>Выйти</button>}</div>
     </header>
       {scanStartedAt && <ScanProgress startedAt={scanStartedAt} source={source} active={scanning}/>}
       <div className="content" style={{ '--page-direction': direction }}>{error && <div className="alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Закрыть">×</button></div>}{notice && <div className="notice" role="status">{notice}</div>}{loading ? <div className="loading">Загрузка результатов…</div> : dashboard ? <>
-        {page !== 'history' && dashboard.source === 'demo' && <div className="notice" role="status">Демо-данные: этот результат не отражает состояние Active Directory. Выберите Active Directory и запустите анализ для живых данных.</div>}
         <div className="page-stage" data-page={targetPage}>
         <div key={page} className={`page-content page-${transition}`} inert={transition === 'exit' ? true : undefined}>
         {page === 'dashboard' && <Dashboard dashboard={dashboard} accounts={accounts} scans={scans} comparison={comparison} onOpenAccount={openAccount}/>}
