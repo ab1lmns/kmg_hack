@@ -20,6 +20,7 @@ class ApiTests(unittest.TestCase):
                 self.assertGreater(second["findings_found"], 0)
                 self.assertGreater(second["groups_scanned"], 0)
                 self.assertEqual(main.dashboard()["scan_id"], second["scan_id"])
+                self.assertEqual(main.dashboard()["risk_thresholds"]["critical"], main.get_config()["risk_critical_threshold"])
                 self.assertIsInstance(main.computers(), list)
                 self.assertIn("status", main.authentication())
                 self.assertIn("sources", main.checks())

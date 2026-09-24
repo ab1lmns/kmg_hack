@@ -340,6 +340,7 @@ def dashboard():
             "scanned_at": result["scanned_at"], "duration_ms": result.get("duration_ms"),
             "timings_ms": result.get("timings_ms", {}),
             "thresholds": result["thresholds"],
+            "risk_thresholds": result.get("risk_thresholds", {}),
             "domain_policy": result["domain_policy"],
             "domain_policy_risk_score": result.get("domain_policy_risk_score", 0),
             "domain_policy_findings": result.get("domain_policy_findings", []),
