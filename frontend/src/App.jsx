@@ -35,8 +35,14 @@ function Empty({ title, body }) {
   return <div className="empty"><div className="empty-icon"><Icon name="shield" size={25}/></div><h3>{title}</h3><p>{body}</p></div>
 }
 
-function Metric({ label, value, tone, helper }) {
-  return <div className={`metric metric-${label.toLowerCase()}`}><div className="metric-icon"><Icon name="shield" size={22}/></div><div className="metric-label">{label}</div><div className={`metric-value ${tone ?? ''}`}>{value}</div>{helper && <div className="metric-helper">{helper}</div>}</div>
+function Metric({ level, label, value, total, helper }) {
+  const progress = value > 0 && total > 0 ? Math.max(5, value / total * 100) : 0
+  return <div className={`metric metric-${level}`}>
+    <div className="metric-top"><span className="metric-label"><i aria-hidden="true"/>{label}</span><span className="metric-share" title="Доля от всех находок">{total > 0 ? Math.round(value / total * 100) : 0}%</span></div>
+    <div className="metric-value">{value}</div>
+    <div className="metric-helper">{helper}</div>
+    <div className="metric-track" aria-hidden="true"><span style={{width: `${progress}%`}}/></div>
+  </div>
 }
 
 function Dashboard({ dashboard, accounts, scans, comparison, onOpenAccount }) {
@@ -48,11 +54,13 @@ function Dashboard({ dashboard, accounts, scans, comparison, onOpenAccount }) {
   return <>
     <div className="dashboard-intro"><div><h1>Обзор безопасности</h1><p>Риски Active Directory и аккаунты, требующие внимания.</p></div></div>
     <div className="overview-grid">
-      <section className="score-card"><div className="score-ring" title="100 означает минимальный выявленный риск. Оценка основана на среднем риске аккаунтов, компьютеров и политики домена." style={{ '--score': `${dashboard.security_score}%` }}><div><strong>{dashboard.security_score}</strong><span>/ 100</span></div></div><div className="score-copy"><span className="metric-label">AD Security Score</span><h2>Состояние домена</h2><p>100 = лучше.<br/>Чем выше оценка, тем меньше выявленный риск.</p><span className="score-caption">AD SECURITY</span></div></section>
-      <Metric label="Critical" value={dashboard.findings.critical} tone="danger" helper="Немедленная проверка" />
-      <Metric label="High" value={dashboard.findings.high} tone="warning" helper="Высокий приоритет" />
-      <Metric label="Medium" value={dashboard.findings.medium} tone="neutral" helper="Плановые проверки" />
-      <Metric label="Low" value={dashboard.findings.low} tone="neutral" helper="Замечания" />
+      <section className="score-card" aria-label="AD Security Score"><div className="score-card-head"><span>Состояние домена</span><strong>100 = лучше</strong></div><div className="score-card-body"><div className="score-ring" title="100 означает минимальный выявленный риск. Оценка основана на среднем риске аккаунтов, компьютеров и политики домена." style={{ '--score': `${dashboard.security_score}%` }}><div><strong>{dashboard.security_score}</strong><span>/ 100</span></div></div><div className="score-copy"><h2>AD Security Score</h2><p>Чем выше оценка, тем меньше выявленный риск.</p></div></div></section>
+      <div className="severity-grid" aria-label="Находки по уровню риска">
+        <Metric level="critical" label="Критично" value={dashboard.findings.critical} total={dashboard.finding_count} helper="Проверить сразу" />
+        <Metric level="high" label="Высокий" value={dashboard.findings.high} total={dashboard.finding_count} helper="Высокий приоритет" />
+        <Metric level="medium" label="Средний" value={dashboard.findings.medium} total={dashboard.finding_count} helper="Плановая проверка" />
+        <Metric level="low" label="Низкий" value={dashboard.findings.low} total={dashboard.finding_count} helper="Замечания" />
+      </div>
     </div>
     <div className="quick-stats">
       <span><strong>{dashboard.total_users}</strong> аккаунтов</span>
