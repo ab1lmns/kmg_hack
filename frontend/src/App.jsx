@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, downloadCsv, setAccessToken } from './api.js'
 
 const severityLabels = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', safe: 'Без риска' }
+const severityPlain = { critical: 'Критично', high: 'Высокий риск', medium: 'Средний риск', low: 'Низкий риск' }
 const sourceLabels = { demo: 'Демо', ldap: 'Active Directory' }
 const sourceStatusLabels = { ldap: 'Active Directory', fine_grained_policies: 'Fine-Grained Password Policies', computers: 'Компьютеры AD', spn_inventory: 'SPN', interactive_rights: 'Интерактивные права DC', security_event_log: 'Security Event Log', ad_gateway: 'AD Gateway' }
 const checkStatusLabels = { pass: 'Проверен', finding: 'Найдена проблема', partial: 'Частичные данные', error: 'Ошибка чтения', not_evaluated: 'Не оценён' }
@@ -143,18 +144,97 @@ function Accounts({ accounts, findings, onOpenAccount }) {
     <section className="panel table-panel"><div className="toolbar"><label className="search-field"><Icon name="search" size={18}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по имени или отделу"/></label><label className="select-wrap"><span>Тип</span><select value={kind} onChange={e => setKind(e.target.value)}><option value="all">Все</option><option value="user">Пользователи</option><option value="service">Сервисные</option><option value="privileged">Привилегированные</option></select></label><label className="select-wrap"><span>Статус</span><select value={state} onChange={e => setState(e.target.value)}><option value="all">Все</option><option value="enabled">Включён</option><option value="disabled">Отключён</option><option value="locked">Заблокирован</option><option value="inactive">Неактивен</option></select></label><label className="select-wrap"><span>Уровень</span><select value={severity} onChange={e => setSeverity(e.target.value)}><option value="all">Все</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option><option value="safe">Без риска</option></select></label><label className="select-wrap"><span>Сортировка</span><select value={sort} onChange={e => setSort(e.target.value)}><option value="risk">Risk Score</option><option value="name">Имя</option><option value="activity">Последний вход</option><option value="password">Возраст пароля</option></select></label></div><div className="table-scroll"><table><thead><tr><th>Аккаунт</th><th>Тип</th><th>Состояние</th><th>Последний вход</th><th>Возраст пароля</th><th>Права</th><th>Уровень</th><th title="Account Risk Score: 100 означает максимальный выявленный риск">Risk Score</th><th></th></tr></thead><tbody>{filtered.map(item => <tr key={item.id} onClick={() => onOpenAccount(item.id)} tabIndex="0" onKeyDown={e => { if (e.key === 'Enter') onOpenAccount(item.id) }}><td><strong className="mono">{item.username}</strong><small className="table-sub">{item.display_name}</small></td><td>{item.service_account ? 'Сервисный' : 'Пользователь'}</td><td>{item.locked ? 'Заблокирован' : !item.enabled ? 'Отключён' : item.account_expired ? 'Истёк' : 'Включён'}</td><td>{item.last_logon ? formatDate(item.last_logon) : item.exact_last_logon ? `${formatDate(item.exact_last_logon)} (DC)` : item.activity_status === "never_observed" ? "Вход не наблюдался" : "Нет данных"}</td><td>{item.password_must_change ? 'Требуется смена' : item.password_last_set ? daysAgo(item.password_last_set) === 0 ? 'Сегодня' : `${daysAgo(item.password_last_set)} дн.` : 'Нет данных'}</td><td>{item.privileged ? <span className="privileged">Есть</span> : 'Нет'}</td><td><Badge level={item.risk_level}/></td><td className="score-cell">{item.risk_score}/100</td><td><Icon name="arrow" size={16}/></td></tr>)}</tbody></table></div>{!filtered.length && <Empty title="Аккаунты не найдены" body="Попробуйте другой поисковый запрос."/>}</section></>
 }
 
+function explainAccountFinding(item, account) {
+  const evidence = item.evidence ?? {}
+  const groups = evidence.privilege_details ?? []
+  if (item.rule_id === 'DIRECT_PRIVILEGE') {
+    const domain = groups.some(group => group.group === 'Domain Admins')
+    const lab = groups.some(group => group.group === 'IR-Lab-Admins')
+    const other = groups.filter(group => !['Domain Admins', 'IR-Lab-Admins'].includes(group.group))
+    return {
+      title: domain ? 'Доступ администратора домена' : 'Административный доступ',
+      text: [
+        domain && (account.enabled
+          ? 'Аккаунт напрямую входит в Domain Admins: с ним можно управлять всем доменом.'
+          : 'Аккаунт остаётся в Domain Admins. Пока он отключён, вход невозможен; после включения вернутся права управления доменом.'),
+        lab && 'Также есть права в тестовом разделе InfraRadarLab.',
+        ...other.map(group => `Также входит в ${group.group}: ${group.scope_label}.`),
+      ].filter(Boolean).join(' ') || item.reason,
+    }
+  }
+  if (item.rule_id === 'NESTED_PRIVILEGE') {
+    const paths = (evidence.paths ?? []).map(path => path.join(' → ')).join('; ')
+    return { title: 'Административный доступ через группы',
+      text: `Права ${account.enabled ? 'получены' : 'сохранятся после включения'} через вложенные группы${paths ? `: ${paths}` : ''}. Их легко не заметить, если смотреть только список групп аккаунта.` }
+  }
+  if (item.rule_id === 'MULTIPLE_PRIVILEGES') {
+    const names = evidence.critical_groups ?? []
+    return { title: 'Несколько административных ролей',
+      text: `Аккаунт состоит в ${names.length || 'нескольких'} административных группах${names.length ? `: ${names.join(', ')}` : ''}. ${account.enabled ? 'При компрометации будет доступно больше действий.' : 'При включении вернутся права всех этих групп.'}` }
+  }
+  const explanations = {
+    PASSWORD_NEVER_EXPIRES: ['Пароль не истекает', 'В AD отключён срок действия пароля. Он останется действительным, пока его не сменят вручную.'],
+    SERVICE_PASSWORD_NEVER_EXPIRES: ['Пароль сервиса не истекает', 'Пароль сервисной учётки не имеет срока действия. Без плановой смены им можно пользоваться долго.'],
+    OLD_PASSWORD: ['Пароль давно не менялся', `Пароль установлен ${evidence.password_age_days ?? 'много'} дней назад; заданный порог — ${evidence.threshold_days ?? '—'} дней.`],
+    PASSWORD_NOT_REQUIRED: ['Пароль может не требоваться', 'У аккаунта включён флаг AD, ослабляющий требование пароля.'],
+    DISABLED_ACCOUNT: ['Аккаунт отключён', 'Войти сейчас нельзя, но запись и её настройки остаются в AD.'],
+    DISABLED_PRIVILEGED: ['Отключённый администратор сохранил права', 'Аккаунт выключен, но остаётся в административных группах. Если его включить, права снова будут доступны.'],
+    EXPIRED_ACCOUNT: ['Срок действия аккаунта истёк', 'Дата окончания действия прошла. Нужно проверить, зачем аккаунт и его права остаются в каталоге.'],
+    LOCKED_ACCOUNT: ['Аккаунт заблокирован', 'AD зафиксировал блокировку. Причину следует проверить по событиям входа.'],
+    INACTIVE_ACCOUNT: ['Аккаунт давно не использовался', `По доступным данным входа активность не наблюдалась дольше ${evidence.threshold_days ?? 'заданного порога'} дней.`],
+    INACTIVE_PRIVILEGED: ['Неиспользуемый администратор', 'Административные права остаются у аккаунта, который давно не использовался.'],
+    SERVICE_PRIVILEGED: ['Сервис имеет административные права', 'Сервисная учётка входит в административную группу. Взлом сервиса даст доступ к этим правам.'],
+    INACTIVE_SERVICE: ['Сервис давно не использовался', 'Для сервисной учётки давно не наблюдалась активность; её назначение нужно подтвердить.'],
+    MISSING_OWNER: ['Не указан ответственный', 'У сервисной учётки нет ответственного в AD. Неясно, кто должен менять пароль и проверять её права.'],
+    SERVICE_INTERACTIVE_LOGON: ['Сервису разрешён вход на сервер', 'Сервисная учётка может использоваться для обычного входа на проверенном сервере.'],
+    SID_HISTORY_PRESENT: ['Сохранены старые идентификаторы', 'SIDHistory может сохранять доступ через прежние учётные записи. Нужно подтвердить назначение.'],
+    DUPLICATE_SPN: ['Один адрес сервиса у нескольких аккаунтов', 'Одинаковый SPN указан у разных объектов; Kerberos может выбрать неправильный аккаунт.'],
+    DELEGATION_UNCONSTRAINED: ['Неограниченное делегирование', 'Сервис может использовать переданные ему учётные данные шире, чем требуется для одной задачи.'],
+    DELEGATION_CONSTRAINED: ['Настроено делегирование', 'Аккаунту разрешено действовать от имени пользователей перед указанными сервисами; список нужно проверить.'],
+    DELEGATION_RBCD: ['Ресурсное делегирование', 'Другим аккаунтам могут быть выданы права действовать от имени пользователей перед этим ресурсом.'],
+    AUTH_TARGETED: ['Повторные неудачные входы', 'Этот аккаунт встречается в подозрительной серии неудачных попыток входа.'],
+  }
+  const explanation = explanations[item.rule_id]
+  return explanation ? { title: explanation[0], text: explanation[1] } : { title: item.title, text: item.reason }
+}
+
 function AccountDetails({ account, riskThresholds, inactiveDays, onBack }) {
   const priority = { low: 1, medium: 2, high: 3, critical: 4 }
   const primary = account.findings.reduce((best, item) => !best || priority[item.severity] > priority[best.severity] ? item : best, null)
   const base = primary ? { low: 10, medium: riskThresholds?.medium ?? 30, high: riskThresholds?.high ?? 60, critical: riskThresholds?.critical ?? 80 }[primary.severity] : 0
   const extra = Math.max(0, account.risk_score - base)
   const noActivityFinding = !account.findings.some(item => item.rule_id === 'INACTIVE_ACCOUNT')
-  return <><button className="back-button" onClick={onBack}>← К списку аккаунтов</button><div className="section-head"><div><div className="eyebrow">Карточка аккаунта</div><h1>{account.username}</h1><p>{account.display_name} · {account.department || 'Отдел не указан'}</p></div><div className="detail-score"><span>Risk Score · 100 = хуже</span><strong>{account.risk_score}<small>/100</small></strong><Badge level={account.risk_level}/></div></div>
-    <section className="panel detail-panel"><h2>Почему {account.risk_score}/100</h2>{primary ? <><p>Наивысшее правило «{primary.title}» ({severityLabels[primary.severity]}) задаёт базу {base}. Остальные находки увеличивают оценку на 30% своего веса{account.risk_score === 100 ? ', максимум — 100' : ''}: здесь +{extra}. Итого {account.risk_score}/100. Это оценка риска прав и настроек, а не признак взлома.</p><dl className="facts">{account.findings.map(item => <div key={item.id}><dt>{item.title}</dt><dd><Badge level={item.severity}/> · вес правила {item.score}{item.rule_id === 'DIRECT_PRIVILEGE' || item.rule_id === 'NESTED_PRIVILEGE' ? ` · ${item.reason}` : ''}</dd></div>)}</dl></> : <p>Ни одно правило риска для этого аккаунта не сработало. Оценка 0/100.</p>}<p className="scope-note">Поля «нет данных» и «не задан» не добавляют баллы сами по себе. {account.activity_status === 'never_observed' && noActivityFinding ? 'Вход пока не наблюдался, но правило неактивности не сработало: аккаунт ещё не достиг порога {inactiveDays ?? 90} дней.' : ''}</p></section>
-    <div className="details-grid"><section className="panel detail-panel"><h2>Сведения</h2><p title="Risk Score: больше означает выше риск">Risk Score {account.risk_score}/100 · {severityLabels[account.risk_level]} · чем выше, тем больше риск</p><dl className="facts"><div><dt>Тип</dt><dd>{account.service_account ? 'Сервисный аккаунт' : 'Пользователь'}</dd></div><div><dt>Должность</dt><dd>{account.title || 'Не указана'}</dd></div><div><dt>Отдел</dt><dd>{account.department || 'Не указан'}</dd></div><div><dt>Компания</dt><dd>{account.company || 'Не указана'}</dd></div><div><dt>Состояние</dt><dd>{account.enabled ? 'Включён' : 'Отключён'}</dd></div><div><dt>Последний вход</dt><dd>{account.last_logon ? formatDate(account.last_logon) : account.exact_last_logon ? `${formatDate(account.exact_last_logon)} (DC)` : account.activity_status === "never_observed" ? "Вход не наблюдался" : "Нет данных"}</dd></div><div><dt>Пароль установлен</dt><dd>{formatDate(account.password_last_set)}{account.password_last_set ? daysAgo(account.password_last_set) === 0 ? ' · сегодня' : ` · ${daysAgo(account.password_last_set)} дней назад` : ''}</dd></div><div><dt>Владелец</dt><dd>{account.owner || (account.service_account ? 'Не указан — см. находки ниже' : 'Не указан — на этот score не влияет')}</dd></div><div><dt>Привилегии</dt><dd>{account.privileged ? 'Есть' : 'Не найдены'}</dd></div></dl></section>
+  const reasons = [...account.findings].sort((left, right) => priority[right.severity] - priority[left.severity])
+  return <><button className="back-button" onClick={onBack}>← К списку аккаунтов</button><div className="section-head"><div><div className="eyebrow">Карточка аккаунта</div><h1>{account.username}</h1><p>{account.display_name} · {account.department || 'Отдел не указан'}</p></div><div className="detail-score"><span>Risk Score · 100 = хуже</span><strong>{account.risk_score}<small>/100</small></strong><span className={`badge badge-${account.risk_level}`}>{severityPlain[account.risk_level] ?? severityLabels[account.risk_level]}</span></div></div>
+    <section className="panel detail-panel risk-explanation">
+      <h2>Почему риск {account.risk_score}/100</h2>
+      {reasons.length ? <>
+        <p>Это оценка риска аккаунта, а не сообщение о взломе. Причины:</p>
+        <div className="risk-reasons">{reasons.map(item => {
+          const explanation = explainAccountFinding(item, account)
+          return <div className="risk-reason" key={item.id}>
+            <div><strong>{explanation.title}</strong><span className={`badge badge-${item.severity}`}>{severityPlain[item.severity] ?? item.severity}</span></div>
+            <p>{explanation.text}</p>
+          </div>
+        })}</div>
+        <details className="score-method"><summary>Как получился балл {account.risk_score}/100</summary>
+          <p>Самая серьёзная причина задаёт начальную оценку {base}. Остальные причины добавили {extra} {extra === 1 ? 'балл' : extra >= 2 && extra <= 4 ? 'балла' : 'баллов'} с учётом их веса{account.risk_score === 100 ? '; итог ограничен 100' : ''}. Итог — {account.risk_score}/100.</p>
+        </details>
+      </> : <p>Проверки не нашли проблем для этого аккаунта. Оценка 0/100.</p>}
+      {account.activity_status === 'never_observed' && noActivityFinding && <p className="scope-note">Вход в AD пока не зафиксирован. Аккаунт создан недавно, поэтому он не считается неактивным до истечения порога {inactiveDays ?? 90} дней.</p>}
+    </section>
+    <div className="details-grid"><section className="panel detail-panel"><h2>Сведения</h2><p title="Risk Score: больше означает выше риск">Risk Score {account.risk_score}/100 · {severityPlain[account.risk_level] ?? severityLabels[account.risk_level]} · чем выше, тем больше риск</p><dl className="facts"><div><dt>Тип</dt><dd>{account.service_account ? 'Сервисный аккаунт' : 'Пользователь'}</dd></div><div><dt>Должность</dt><dd>{account.title || 'Не указана'}</dd></div><div><dt>Отдел</dt><dd>{account.department || 'Не указан'}</dd></div><div><dt>Компания</dt><dd>{account.company || 'Не указана'}</dd></div><div><dt>Состояние</dt><dd>{account.enabled ? 'Включён' : 'Отключён'}</dd></div><div><dt>Последний вход</dt><dd>{account.last_logon ? formatDate(account.last_logon) : account.exact_last_logon ? `${formatDate(account.exact_last_logon)} (DC)` : account.activity_status === "never_observed" ? "Вход не наблюдался" : "Нет данных"}</dd></div><div><dt>Пароль установлен</dt><dd>{formatDate(account.password_last_set)}{account.password_last_set ? daysAgo(account.password_last_set) === 0 ? ' · сегодня' : ` · ${daysAgo(account.password_last_set)} дней назад` : ''}</dd></div><div><dt>Владелец</dt><dd>{account.owner || (account.service_account ? 'Не указан — см. находки ниже' : 'Не указан — на этот score не влияет')}</dd></div><div><dt>Привилегии</dt><dd>{account.privileged ? 'Есть' : 'Не найдены'}</dd></div></dl></section>
       <section className="panel detail-panel"><h2>Группы и пути доступа</h2><div className="tags">{account.groups.length ? account.groups.map(group => <span key={group}>{group}</span>) : <p className="muted">Группы не указаны</p>}</div>{account.privilege_details?.map(item => <p className="scope-note" key={item.group}><strong>{item.group}</strong>: {item.scope_label}</p>)}{account.privilege_paths.length > 0 && <><h3>Путь до административной группы</h3><div className="path-list">{account.privilege_paths.map((path, index) => <div className="privilege-path" key={index}>{path.map((part, i) => <span key={i}>{i > 0 && <b>→</b>}{part}</span>)}</div>)}</div></>}{account.service_account && <p className="scope-note"><strong>Права интерактивного входа на DC:</strong> {interactiveStatus(account.interactive_logon)}{account.interactive_logon?.note ? ` · ${account.interactive_logon.note}` : ''}</p>}</section></div>
     <section className="panel detail-panel"><h2>Данные AD и проверки</h2><dl className="facts"><div><dt>DN</dt><dd className="mono">{account.distinguished_name || 'Нет данных'}</dd></div><div><dt>Имя / фамилия</dt><dd>{[account.given_name, account.surname].filter(Boolean).join(' ') || 'Не указаны'}</dd></div><div><dt>Описание AD</dt><dd>{account.description || 'Не указано'}</dd></div><div><dt>Создан</dt><dd>{formatDate(account.when_created)}</dd></div><div><dt>Срок действия</dt><dd>{account.account_expires_at ? formatDate(account.account_expires_at) : 'Не задан'}</dd></div><div><dt>Активность</dt><dd>{activityDisplay(account)}</dd></div><div><dt>Вход на текущем DC</dt><dd>{account.exact_last_logon ? formatDate(account.exact_last_logon) : 'Не зафиксирован'}</dd></div><div><dt>Блокировка / срок</dt><dd>{account.locked ? 'Заблокирован' : 'Нет блокировки'} · {account.account_expired ? 'Срок истёк' : 'Не истёк'}</dd></div><div><dt>Пароль</dt><dd>{account.password_must_change ? 'Требуется смена' : account.password_never_expires ? 'Не истекает' : 'Обычный срок'}{account.password_not_required ? ' · не требуется' : ''}</dd></div><div><dt>Применённая политика</dt><dd>{account.resultant_password_policy?.name || (account.password_policy_source === 'domain_default' || account.password_policy_source === 'domain' ? 'Политика домена (без FGPP)' : 'Нет данных')}</dd></div><div><dt>Тип сервиса</dt><dd>{account.service_detection_reasons?.join(', ') || 'Не классифицирован как сервисный'}</dd></div><div><dt>SIDHistory</dt><dd>{account.sid_history?.length ? account.sid_history.join(', ') : 'Нет'}</dd></div><div><dt>SPN</dt><dd>{account.spns?.length ? account.spns.join(', ') : 'Нет'}</dd></div><div><dt>Делегация</dt><dd>{Object.keys(account.delegation ?? {}).length ? delegationLabel(account.delegation) : 'Не обнаружена'}</dd></div><div><dt>Интерактивный вход</dt><dd>{account.service_account ? interactiveStatus(account.interactive_logon) : 'Не проверяется для обычных пользователей'}{account.interactive_logon?.target_host ? ` · ${account.interactive_logon.target_host}` : ''}</dd></div></dl></section>
-    <section className="panel finding-detail-panel"><div className="panel-head"><div><h2>Причины риска и рекомендации</h2><p>{account.findings.length} найденных проблем</p></div></div>{account.findings.length ? <div className="finding-cards">{account.findings.map(item => <article className="finding-card" key={item.id}><div className="finding-card-top"><Badge level={item.severity}/><strong>Вес правила: {item.score}</strong></div><h3>{item.title}</h3><p>{item.reason}</p><p><strong>Почему важно:</strong> {item.why_it_matters || item.reason}</p><Evidence evidence={item.evidence}/><div className="recommendation"><span>Что сделать</span><p>{item.recommendation}</p></div></article>)}</div> : <Empty title="Проблемы не обнаружены" body="Для этого аккаунта правила анализа не сработали."/>}</section>
+    <section className="panel finding-detail-panel"><div className="panel-head"><div><h2>Что проверить и исправить</h2><p>{account.findings.length} найденных проблем</p></div></div>{account.findings.length ? <div className="finding-cards">{reasons.map(item => {
+      const explanation = explainAccountFinding(item, account)
+      return <article className="finding-card" key={item.id}>
+        <div className="finding-card-top"><span className={`badge badge-${item.severity}`}>{severityPlain[item.severity] ?? item.severity}</span></div>
+        <h3>{explanation.title}</h3><p>{explanation.text}</p>
+        <div className="recommendation"><span>Что сделать</span><p>{item.recommendation}</p></div>
+        <details className="finding-evidence"><summary>Технические данные</summary><Evidence evidence={item.evidence}/></details>
+      </article>
+    })}</div> : <Empty title="Проблемы не обнаружены" body="Для этого аккаунта правила анализа не сработали."/>}</section>
   </>
 }
 
