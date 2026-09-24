@@ -9,6 +9,7 @@ CRITICAL_GROUPS = {
     "domain admins", "enterprise admins", "schema admins", "administrators",
     "account operators", "server operators", "backup operators", "dnsadmins",
 }
+TIER_ZERO_GROUPS = {"domain admins", "enterprise admins", "schema admins", "administrators"}
 POINTS = {"critical": 40, "high": 25, "medium": 10, "low": 5}
 DEFAULT_RISK_THRESHOLDS = (30, 60, 80)  # Medium, High, Critical
 RULE_CATEGORIES = {
@@ -23,6 +24,40 @@ RULE_CATEGORIES = {
     "SHORT_MIN_PASSWORD": "domain_policy", "NO_PASSWORD_COMPLEXITY": "domain_policy",
     "NO_LOCKOUT": "domain_policy",
 }
+
+WHY_IT_MATTERS = {
+    "DISABLED_ACCOUNT": "Оставленный объект может сохранить членства и быть включён снова без проверки прав.",
+    "INACTIVE_ACCOUNT": "Неиспользуемый доступ сложнее контролировать и вовремя отозвать.",
+    "EXPIRED_ACCOUNT": "Истёкший объект следует проверить на лишние членства и необходимость хранения.",
+    "LOCKED_ACCOUNT": "Блокировка может указывать на ошибки входа или попытки подбора; причина требует проверки журналов.",
+    "PASSWORD_NEVER_EXPIRES": "Без ротации срок использования скомпрометированного пароля не ограничен.",
+    "SERVICE_PASSWORD_NEVER_EXPIRES": "Долгоживущий пароль сервиса увеличивает время возможного злоупотребления.",
+    "OLD_PASSWORD": "Старый пароль дольше остаётся пригодным после возможной компрометации.",
+    "PASSWORD_NOT_REQUIRED": "Этот флаг ослабляет стандартную проверку требований к паролю.",
+    "DIRECT_PRIVILEGE": "Прямое членство открывает права указанной группы в её фактической области.",
+    "NESTED_PRIVILEGE": "Вложенное членство может скрывать путь к административным правам.",
+    "DISABLED_PRIVILEGED": "При повторном включении аккаунта сохранённые права станут доступны.",
+    "INACTIVE_PRIVILEGED": "Административный доступ без наблюдаемой активности требует подтверждения владельца.",
+    "MULTIPLE_PRIVILEGES": "Несколько ролей увеличивают область действий при компрометации аккаунта.",
+    "SERVICE_PRIVILEGED": "Компрометация сервиса может дать права в указанной группе и области.",
+    "INACTIVE_SERVICE": "Неиспользуемый сервисный доступ может остаться без контроля владельца.",
+    "MISSING_OWNER": "Без ответственного сложнее безопасно менять пароль и отзывать доступ.",
+    "SHORT_MIN_PASSWORD": "Низкая минимальная длина допускает более слабые пароли.",
+    "NO_PASSWORD_COMPLEXITY": "Отключённая сложность допускает простые комбинации.",
+    "NO_LOCKOUT": "Без блокировки попытки подбора пароля не ограничены этой политикой.",
+}
+
+
+def privilege_scope(group_name: str, groups_by_name: dict[str, Any]) -> dict[str, str]:
+    group = groups_by_name.get(group_name.lower())
+    dn = group.distinguished_name.lower() if group else ""
+    if group_name.lower() == "ir-lab-admins" and "ou=infraradarlab," in dn:
+        return {"group": group_name, "scope": "lab_ou", "scope_label": "только OU=InfraRadarLab"}
+    if group_name.lower() == "ir-lab-admins":
+        return {"group": group_name, "scope": "unverified", "scope_label": "область делегирования не подтверждена"}
+    if group_name.lower() in CRITICAL_GROUPS and group:
+        return {"group": group_name, "scope": "built_in", "scope_label": "встроенная административная группа AD"}
+    return {"group": group_name, "scope": "unverified", "scope_label": "область прав не подтверждена"}
 
 
 def days_since(value: str | None) -> int | None:
@@ -88,6 +123,7 @@ def finding(account: Account, rule_id: str, title: str, severity: str,
         "rule_id": rule_id, "title": title, "severity": severity,
         "category": RULE_CATEGORIES.get(rule_id, "other"),
         "score": POINTS[severity], "reason": reason,
+        "why_it_matters": WHY_IT_MATTERS.get(rule_id, reason),
         "evidence": evidence or {}, "recommendation": recommendation,
     }
 
@@ -96,12 +132,16 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
             critical_groups: set[str] = CRITICAL_GROUPS,
             risk_thresholds: tuple[int, int, int] = DEFAULT_RISK_THRESHOLDS) -> dict[str, Any]:
     parents = {group.name.lower(): group.member_of for group in snapshot.groups}
+    groups_by_name = {group.name.lower(): group for group in snapshot.groups}
     all_findings: list[dict[str, Any]] = []
     accounts: list[dict[str, Any]] = []
 
     for account in snapshot.accounts:
         paths = privilege_paths(account, parents, critical_groups)
         account_critical_groups = sorted({path[-1] for path in paths})
+        privilege_details = [privilege_scope(group, groups_by_name) for group in account_critical_groups]
+        scope_label = "; ".join(f"{item['group']}: {item['scope_label']}" for item in privilege_details)
+        has_builtin_privilege = any(item["scope"] == "built_in" for item in privilege_details)
         privileged = bool(paths)
         login_age = days_since(account.last_logon)
         created_age = days_since(account.when_created)
@@ -153,34 +193,46 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
             direct = [path for path in paths if len(path) == 2]
             nested = [path for path in paths if len(path) > 2]
             if direct:
+                direct_details = [privilege_scope(group, groups_by_name) for group in sorted({path[-1] for path in direct})]
+                direct_tier_zero = any(item["scope"] == "built_in" and item["group"].lower() in TIER_ZERO_GROUPS
+                                       for item in direct_details)
                 findings.append(finding(account, "DIRECT_PRIVILEGE", "Прямые административные права",
-                    "high", f"Прямое членство в {', '.join(sorted({path[-1] for path in direct}))}",
+                    "critical" if direct_tier_zero else "high",
+                    "Прямое членство. " + "; ".join(f"{item['group']}: {item['scope_label']}" for item in direct_details),
                     "Проверьте необходимость членства в административной группе.",
-                    {"paths": direct}))
+                    {"paths": direct, "privilege_details": direct_details}))
             if nested:
+                nested_details = [privilege_scope(group, groups_by_name) for group in sorted({path[-1] for path in nested})]
+                nested_tier_zero = any(item["scope"] == "built_in" and item["group"].lower() in TIER_ZERO_GROUPS
+                                       for item in nested_details)
                 findings.append(finding(account, "NESTED_PRIVILEGE", "Административные права через вложенные группы",
-                    "high", "Найдена цепочка вложенного членства до критической группы",
-                    "Проверьте каждую связь в цепочке и удалите лишнее членство.", {"paths": nested}))
+                    "critical" if nested_tier_zero else "high",
+                    "Найдена цепочка вложенного членства. " + "; ".join(f"{item['group']}: {item['scope_label']}" for item in nested_details),
+                    "Проверьте каждую связь в цепочке и удалите лишнее членство.",
+                    {"paths": nested, "privilege_details": nested_details}))
             if not account.enabled:
                 findings.append(finding(account, "DISABLED_PRIVILEGED", "Отключённый аккаунт сохраняет административные права",
-                    "high", "Учётная запись отключена, но остаётся в критической группе",
-                    "Проверьте необходимость членства и удалите лишние права.", {"paths": paths}))
+                    "high", f"Учётная запись отключена, но сохраняет членство. {scope_label}",
+                    "Проверьте необходимость членства и удалите лишние права.",
+                    {"paths": paths, "privilege_details": privilege_details}))
             if inactive:
                 findings.append(finding(account, "INACTIVE_PRIVILEGED", "Неактивный привилегированный аккаунт",
-                    "critical", "Аккаунт имеет административные права, но давно не использовался",
+                    "critical" if has_builtin_privilege else "high", f"Аккаунт имеет права, но давно не использовался. {scope_label}",
                     "Проверьте владельца и необходимость доступа; удалите лишние административные права.",
-                    {"paths": paths, "days_since_login": login_age}))
+                    {"paths": paths, "privilege_details": privilege_details, "days_since_login": login_age}))
             if len(account_critical_groups) > 1:
                 findings.append(finding(account, "MULTIPLE_PRIVILEGES", "Несколько административных ролей",
                     "high", f"Доступ к {len(account_critical_groups)} критическим группам",
                     "Оставьте только права, необходимые для текущих задач.",
-                    {"critical_groups": account_critical_groups, "paths": paths}))
+                    {"critical_groups": account_critical_groups, "paths": paths,
+                     "privilege_details": privilege_details}))
         if account.service_account:
             if privileged:
                 findings.append(finding(account, "SERVICE_PRIVILEGED", "Сервисный аккаунт с административными правами",
-                    "critical", "Сервисный аккаунт имеет доступ к критической группе",
+                    "critical" if has_builtin_privilege else "high", f"Сервисный аккаунт имеет права. {scope_label}",
                     "Проверьте зависимости сервиса и сократите права до минимально необходимых.",
-                    {"paths": paths, "service_reason": account.service_reason}))
+                    {"paths": paths, "privilege_details": privilege_details,
+                     "service_reason": account.service_reason}))
             if inactive:
                 findings.append(finding(account, "INACTIVE_SERVICE", "Неиспользуемый сервисный аккаунт",
                     "high" if account.enabled else "medium", "Сервисный аккаунт не проявлял активности",
@@ -196,7 +248,11 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
         item = account.to_dict()
         item.update({"risk_score": score, "risk_level": risk_level(score, risk_thresholds),
                      "privileged": privileged, "critical_groups": account_critical_groups,
-                     "privilege_paths": paths, "findings": findings})
+                     "privilege_paths": paths, "privilege_details": privilege_details,
+                     "interactive_logon": {"status": "not_evaluated", "reason":
+                         "LDAP не содержит результирующие права интерактивного входа на каждом компьютере; требуется анализ применённой политики и deny/allow прав."}
+                         if account.service_account else None,
+                     "findings": findings})
         accounts.append(item)
         all_findings.extend(findings)
 
@@ -222,6 +278,7 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
                     "account_type": "domain", "rule_id": rule_id, "title": title,
                     "severity": severity, "score": POINTS[severity], "reason": reason,
                     "category": RULE_CATEGORIES.get(rule_id, "domain_policy"),
+                    "why_it_matters": WHY_IT_MATTERS[rule_id],
                     "evidence": {field: value}, "recommendation": recommendation,
                 })
     all_findings.extend(policy_findings)

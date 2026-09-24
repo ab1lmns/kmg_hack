@@ -70,6 +70,8 @@ def _date(value) -> str | None:
         return None
     try:
         raw = int(value)
+        if raw <= 0:
+            return None
         return datetime.fromtimestamp((raw - 116444736000000000) / 10_000_000, timezone.utc).isoformat()
     except (TypeError, ValueError, OverflowError, OSError):
         return None
@@ -77,6 +79,18 @@ def _date(value) -> str | None:
 
 def _first_rdn(dn: str) -> str:
     return dn.split(",", 1)[0].split("=", 1)[-1]
+
+
+def _ad_interval_seconds(value) -> int | None:
+    """AD password policy intervals are signed 100 ns ticks (usually negative)."""
+    if isinstance(value, timedelta):
+        return abs(round(value.total_seconds()))
+    raw = _int(value, None)
+    if raw is None:
+        return None
+    if raw == -9223372036854775808:  # AD's unlimited password age sentinel
+        return None
+    return abs(raw) // 10_000_000
 
 
 def collect_ldap(settings: Settings) -> Snapshot:
@@ -114,7 +128,9 @@ def collect_ldap(settings: Settings) -> Snapshot:
                 attributes=["objectGUID", "objectSid", "distinguishedName", "sAMAccountName", "memberOf"],
                 paged_size=500, generator=True,
             ))
-            policy_attrs = ["minPwdLength", "pwdProperties", "lockoutThreshold"]
+            policy_attrs = ["minPwdLength", "pwdProperties", "lockoutThreshold",
+                            "pwdHistoryLength", "maxPwdAge", "minPwdAge",
+                            "lockoutDuration", "lockOutObservationWindow"]
             connection.search(settings.ldap_base_dn, "(objectClass=domainDNS)", attributes=policy_attrs)
             domain_entry = connection.entries[0] if connection.entries else None
             policy = {}
@@ -126,6 +142,15 @@ def collect_ldap(settings: Settings) -> Snapshot:
                     "min_password_length": int(minimum or 0),
                     "password_complexity": bool(int(properties or 0) & 1),
                     "lockout_threshold": int(lockout or 0),
+                    "password_history_count": _int(_value(domain_entry, "pwdHistoryLength"), None),
+                    "max_password_age_days": (lambda seconds: None if seconds is None else seconds // 86400)(
+                        _ad_interval_seconds(_value(domain_entry, "maxPwdAge"))),
+                    "min_password_age_days": (lambda seconds: None if seconds is None else seconds // 86400)(
+                        _ad_interval_seconds(_value(domain_entry, "minPwdAge"))),
+                    "lockout_duration_minutes": (lambda seconds: None if seconds is None else seconds // 60)(
+                        _ad_interval_seconds(_value(domain_entry, "lockoutDuration"))),
+                    "lockout_observation_minutes": (lambda seconds: None if seconds is None else seconds // 60)(
+                        _ad_interval_seconds(_value(domain_entry, "lockOutObservationWindow"))),
                 }
     except Exception as exc:
         # Never include bind credentials or LDAP library diagnostics in API responses.

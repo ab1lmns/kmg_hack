@@ -16,6 +16,8 @@ class LiveLdapTests(unittest.TestCase):
         self.assertGreaterEqual(len(snapshot.accounts), 28)
         self.assertGreaterEqual(len(snapshot.groups), 9)
         self.assertIn("ir-svc-backup", {account.username for account in snapshot.accounts})
+        self.assertEqual(snapshot.domain_policy["max_password_age_days"], 42)
+        self.assertEqual(snapshot.domain_policy["lockout_duration_minutes"], 30)
         result = analyze(snapshot, critical_groups={name.lower() for name in settings.critical_groups})
         self.assertTrue(all(item["evidence"] and item["recommendation"]
                             for item in result["findings"]))

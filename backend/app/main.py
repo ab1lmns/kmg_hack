@@ -58,21 +58,35 @@ def health():
 
 @app.get("/api/connection/status")
 def connection_status():
+    latest = storage.latest()
+    last_check = storage.latest_audit_event("connection_test")
+    success = storage.latest_audit_event("connection_test", "success")
+    last_success = success["occurred_at"] if success else None
     return {"configured": all([settings.ldap_host, settings.ldap_base_dn,
         settings.ldap_username]),
         "password_required": not bool(settings.ldap_password),
         "host": settings.ldap_host, "port": settings.ldap_port,
-        "use_ssl": settings.ldap_use_ssl, "base_dn": settings.ldap_base_dn}
+        "use_ssl": settings.ldap_use_ssl, "base_dn": settings.ldap_base_dn,
+        "domain": ".".join(part[3:] for part in settings.ldap_base_dn.split(",") if part.lower().startswith("dc=")),
+        "reader_username": settings.ldap_username,
+        "read_only": True, "last_connection_success": last_success,
+        "connection_test_status": last_check["status"] if last_check else "not_checked",
+        "last_scan": latest["scanned_at"] if latest else None,
+        "last_scan_source": latest["source"] if latest else None,
+        "last_users": latest["summary"]["total_users"] if latest else None,
+        "last_groups": len(latest["groups"]) if latest else None}
 
 
 @app.post("/api/connection/test")
 def test_connection():
     try:
         snapshot = collect_ldap(settings)
+        storage.audit("connection_test", "success", {"users": len(snapshot.accounts), "groups": len(snapshot.groups)})
         logger.info("LDAP connection test succeeded: %s users, %s groups", len(snapshot.accounts), len(snapshot.groups))
         return {"success": True, "users_found": len(snapshot.accounts),
                 "groups_found": len(snapshot.groups), "domain_policy": snapshot.domain_policy}
     except CollectorError as exc:
+        storage.audit("connection_test", "failed", {"error_type": type(exc).__name__})
         logger.warning("LDAP connection test failed: %s", exc)
         raise HTTPException(503, str(exc)) from exc
 
@@ -80,19 +94,33 @@ def test_connection():
 @app.post("/api/scans")
 def create_scan(request: ScanRequest):
     started = time.perf_counter()
+    previous = storage.latest()
+    requested_thresholds = {"inactive_days": request.inactive_days,
+                            "old_password_days": request.old_password_days}
+    if previous and previous.get("thresholds") != requested_thresholds:
+        storage.audit("analysis_config", "changed", requested_thresholds)
+    storage.audit("scan", "started", {"source": request.source})
     try:
         snapshot = collect_demo() if request.source == "demo" else collect_ldap(settings)
+        result = analyze(snapshot, request.inactive_days, request.old_password_days,
+                         {group.lower() for group in settings.critical_groups}, settings.risk_thresholds)
+        result["duration_ms"] = round((time.perf_counter() - started) * 1000)
+        scan_id = storage.save(result)
     except CollectorError as exc:
+        storage.audit("scan", "failed", {"source": request.source, "error_type": type(exc).__name__})
         logger.warning("Scan collection failed: %s", exc)
         raise HTTPException(503, str(exc)) from exc
-    result = analyze(snapshot, request.inactive_days, request.old_password_days,
-                     {group.lower() for group in settings.critical_groups}, settings.risk_thresholds)
-    result["duration_ms"] = round((time.perf_counter() - started) * 1000)
-    scan_id = storage.save(result)
+    except Exception as exc:
+        storage.audit("scan", "failed", {"source": request.source, "error_type": type(exc).__name__})
+        raise
+    storage.audit("scan", "completed", {"scan_id": scan_id, "source": request.source,
+        "users": result["summary"]["total_users"], "groups": len(result["groups"]),
+        "findings": result["summary"]["finding_count"], "duration_ms": result["duration_ms"]})
     logger.info("Scan %s completed: %s users, %s findings", scan_id,
                 result["summary"]["total_users"], result["summary"]["finding_count"])
     return {"scan_id": scan_id, "status": "completed", "source": request.source,
             "users_scanned": result["summary"]["total_users"],
+            "groups_scanned": len(result["groups"]),
             "findings_found": result["summary"]["finding_count"],
             "duration_ms": result["duration_ms"]}
 
@@ -105,6 +133,30 @@ def create_demo_scan():
 @app.get("/api/scans")
 def scans():
     return storage.list_scans()
+
+
+@app.get("/api/scans/compare")
+def compare_scans():
+    history = storage.list_scans()
+    if not history:
+        raise HTTPException(404, "Нет результатов сканирования")
+    current_meta = history[0]
+    previous_meta = next((row for row in history[1:] if row["source"] == current_meta["source"]), None)
+    if not previous_meta:
+        return {"current_scan_id": current_meta["scan_id"], "previous_scan_id": None}
+    current = storage.get(current_meta["scan_id"])
+    previous = storage.get(previous_meta["scan_id"])
+    current_keys = {(row["account_id"], row["rule_id"]) for row in current["findings"]}
+    previous_keys = {(row["account_id"], row["rule_id"]) for row in previous["findings"]}
+    return {"current_scan_id": current_meta["scan_id"], "previous_scan_id": previous_meta["scan_id"],
+            "previous": previous["summary"], "current": current["summary"],
+            "added_findings": len(current_keys - previous_keys),
+            "resolved_findings": len(previous_keys - current_keys)}
+
+
+@app.get("/api/audit")
+def audit_events():
+    return storage.list_audit_events()
 
 
 @app.get("/api/scans/{scan_id}")
@@ -169,15 +221,18 @@ def export_csv():
         text = str(value)
         return "'" + text if text.lstrip().startswith(("=", "+", "-", "@")) else text
     writer.writerow(["Scan Date", "Source", "Account", "Account Type", "Severity",
-                     "Risk Score", "Rule", "Reason", "Evidence", "Recommendation"])
+                     "Risk Score", "Category", "Rule", "Reason", "Why It Matters", "Evidence", "Recommendation"])
     scores = {item["id"]: item["risk_score"] for item in result["accounts"]}
     scores["__domain__"] = result.get("domain_policy_risk_score", 0)
     for item in result["findings"]:
         writer.writerow([safe_cell(value) for value in [result["scanned_at"], result["source"], item["username"],
             item["account_type"], item["severity"], scores.get(item["account_id"], 0),
-            item["title"], item["reason"], json.dumps(item.get("evidence", {}), ensure_ascii=False),
+            item.get("category", ""), item["title"], item["reason"], item.get("why_it_matters", ""),
+            json.dumps(item.get("evidence", {}), ensure_ascii=False),
             item["recommendation"]]])
     data = "\ufeff" + output.getvalue()
+    storage.audit("export_csv", "completed", {"scan_id": result["scan_id"],
+        "findings": len(result["findings"])})
     logger.info("CSV exported for scan %s", result["scan_id"])
     return StreamingResponse(iter([data]), media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="identity-risk-{result["scan_id"][:8]}.csv"'})

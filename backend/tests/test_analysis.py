@@ -86,12 +86,15 @@ class AnalysisTests(unittest.TestCase):
                           service_account=True, service_reason="SPN", password_never_expires=True,
                           groups=["Service Ops"])
         groups = [Group(id="ops", name="Service Ops", member_of=["IR-Lab-Admins"]),
-                  Group(id="admins", name="IR-Lab-Admins")]
+                  Group(id="admins", name="IR-Lab-Admins",
+                        distinguished_name="CN=IR-Lab-Admins,OU=InfraRadarLab,DC=infraradar,DC=test")]
         result = analyze(Snapshot(source="test", accounts=[account], groups=groups),
                          critical_groups={"ir-lab-admins"})
         row = result["accounts"][0]
         self.assertIn(["ir-svc-backup", "Service Ops", "IR-Lab-Admins"], row["privilege_paths"])
-        self.assertEqual(row["risk_level"], "critical")
+        self.assertEqual(row["risk_level"], "high")
+        self.assertEqual(row["privilege_details"][0]["scope"], "lab_ou")
+        self.assertEqual(row["interactive_logon"]["status"], "not_evaluated")
         self.assertIn("SERVICE_PRIVILEGED", {item["rule_id"] for item in row["findings"]})
         self.assertIn("SERVICE_PASSWORD_NEVER_EXPIRES", {item["rule_id"] for item in row["findings"]})
 
@@ -101,6 +104,20 @@ class AnalysisTests(unittest.TestCase):
         self.assertLess(score_findings([{"severity": "high", "score": 25}] * 20), 80)
         self.assertLessEqual(score_findings([{"severity": "critical", "score": 40}] * 20), 100)
         self.assertEqual(score_findings([{"severity": "high", "score": 25}], (25, 50, 75)), 50)
+
+    def test_builtin_admin_is_distinct_from_lab_delegation(self):
+        account = Account(id="svc", username="svc", display_name="Service", service_account=True,
+                          groups=["Domain Admins"])
+        group = Group(id="admins", name="Domain Admins",
+                      distinguished_name="CN=Domain Admins,CN=Users,DC=infraradar,DC=test")
+        row = analyze(Snapshot(source="test", accounts=[account], groups=[group]))["accounts"][0]
+        self.assertEqual(row["risk_level"], "critical")
+        self.assertEqual(row["privilege_details"][0]["scope"], "built_in")
+        self.assertEqual(row["findings"][0]["severity"], "critical")
+
+    def test_all_findings_explain_why(self):
+        result = analyze(collect_demo())
+        self.assertTrue(all(item["why_it_matters"] for item in result["findings"]))
 
 
 if __name__ == "__main__":
