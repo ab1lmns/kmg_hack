@@ -1,50 +1,40 @@
-# Актуальная сверка с оригинальным ТЗ: проект 1 Identity Risk Analyzer
+# Актуальная сверка с ТЗ: проект 1 Identity Risk Analyzer
 
-Проверка 2026-09-24. Источник: `Техническое задание Hackathon Infrastructure_Risk_Radar.docx`, разделы 2, 4 и 5.1. Проект 2 Certificate Radar в этот аудит не входит. Статус **реализовано** относится к коду и подтверждённым тестам; **live ранее** — к сохранённому результату настоящего AD scan; **live сейчас** — к проверке доступности на момент этого аудита.
+Проверено 2026-09-24 после запуска `InfraRadar-DC01`. Источник — оригинальное `Техническое задание Hackathon Infrastructure_Risk_Radar.docx`, разделы 2, 4 и 5.1. Проект 2 Certificate Radar в эту проверку не входит. Проверки ниже выполнялись на настоящем тестовом домене `infraradar.test`; AD-объекты и настройки домена не менялись.
 
 ## Итог
 
-**Обязательный MVP раздела 2.8: 8/8 реализовано. Свежая live-демонстрация сейчас заблокирована:** Hyper-V VM `InfraRadar-DC01` находится в состоянии `Saved`, DC `100.93.42.103` не отвечает по Tailscale/LDAP, а публичный Gateway возвращает `503` на `/v1/snapshot`. По просьбе владельца VM оставлена выключенной; настройки AD и объекты не менялись. Приватный frontend и два backend-сервиса работают, но Dashboard показывает сохранённый scan от `2026-09-24T14:32:16Z`, а не текущий снимок домена.
+**Обязательный MVP раздела 2.8: 8/8 PASS.** Свежий scan на общем backend: `674707fb-1830-4da3-aa4e-1971e31aa0e2`, 42 пользователя, 57 групп, 1 компьютер, 45 находок, AD Security Score 71/100. Отдельный локальный backend через публичный HTTPS AD Gateway получил те же 42/45/71. Все доступные источники последнего scan — `pass`: LDAP, FGPP, компьютеры, SPN, интерактивные права DC и Security Event Log. Снимок интерактивных прав действует 60 минут; после этого источник честно станет `not_evaluated` до следующего read-only экспорта.
 
 ## Обязательный MVP (2.8)
 
-| № | Требование ТЗ | Реализация и доказательство | Сейчас |
-|---|---|---|---|
-| 1 | Подключение к тестовому AD | `LDAP_DIRECT` и фиксированный read-only `AD_GATEWAY`; предыдущий настоящий bind дал 42 lab user | **BLOCKED**: VM `Saved`, Gateway snapshot `503` |
-| 2 | Сбор учётных записей | Collector читает пользователей, группы, компьютеры, PSO/SPN и события; предыдущий scan 42 users, 57 groups | **BLOCKED** для свежих данных |
-| 3 | Несколько проверок риска | 45 ранее подтверждённых findings; правила активности, паролей, привилегий, сервисов, политики и дополнительных AD атрибутов покрыты тестами | Реализовано, данные последнего scan сохранены |
-| 4 | Оценка риска | `analysis.py` считает уровни и Account Risk Score; предыдущий AD Security Score 71. Изменение только локального scoring ранее изменило оценки 11 аккаунтов без deploy Gateway | Реализовано |
-| 5 | Web Dashboard | React build PASS; приватный Dashboard/API отвечает 200 и показывает последнюю историю | Реализовано; визуальный browser QA в этом аудите не повторялся |
-| 6 | Проблемы с причинами | Все 45 сохранённых findings имеют непустые `reason` и `why_it_matters` | PASS на сохранённых данных |
-| 7 | Рекомендации | Все 45 сохранённых findings имеют непустую `recommendation`; AD не меняется автоматически | PASS на сохранённых данных |
-| 8 | CSV, Excel **или** HTML | CSV UTF-8 с BOM, 14 колонок и 45 строк; ранее файл открывался в Excel с русским текстом | PASS на сохранённых данных |
-
-## Функциональные требования (2.3–2.7)
-
-| Раздел | Статус реализации | Подтверждение и предел |
+| Требование | Статус | Свежая проверка |
 |---|---|---|
-| 2.3.1 Пользователи: inactivity, Password Never Expires, old password, locked/expired | **PARTIAL live** | PNE 3, expired 3, disabled 3 в последнем настоящем scan; lockout ранее был live подтверждён и снят. Старый пароль и длительная неактивность имеют положительные unit-тесты, но нет честно созданного положительного live объекта. Пороги настраиваются. |
-| 2.3.2 Сервисные аккаунты | **PARTIAL live** | 7 разных service accounts с PNE, 2 `SERVICE_PRIVILEGED` и 7 `MISSING_OWNER` в сохранённом scan. Неиспользуемый service и разрешённый interactive logon положительно проверены unit-тестами. Результирующие права входа были проверены на DC, но снимок действует 60 минут и сейчас свежим не является. |
-| 2.3.3 Прямые и вложенные привилегии | **PASS исторически** | 7 direct, 6 nested, 2 multiple-role, 3 disabled privileged findings. Пути, критические группы и циклы групп проверены тестами; положительного старого inactive privileged user live нет. |
-| 2.3.4 Парольная политика и признаки атак | **PARTIAL live** | Доменная политика и FGPP считаны ранее. События 4624/4625/4771/4776 ранее собраны отдельным reader; позитивные brute force/spray сценарии подтверждены unit-тестами, настоящий attack не создавался. Пользовательские пароли не собираются и не сохраняются. |
-| 2.3.5 Дополнительный AD анализ | **PARTIAL live, optional** | Компьютер, FGPP, SPN inventory, SIDHistory и delegation атрибуты читаются; положительные SIDHistory/duplicate SPN/delegation/inactive computer сценарии проверены unit-тестами, опасные конфигурации ради демо не создавались. |
-| 2.4 Единая оценка риска | **PASS** | Severity Critical/High/Medium/Low, уровни объектов и сводный score; границы и агрегирование проверены тестами. 100 у AD Security Score означает лучше, 100 у Account Risk Score — хуже. |
-| 2.5 Dashboard | **PASS исторически** | Score, severity, top users, service/privileged/inactive counts, категории, история и переходы к деталям есть в UI/API. Сохранённая история содержит 3 scan на приватном сервере. |
-| 2.6 Рекомендации без автоисправления | **PASS** | Описания и рекомендации у всех сохранённых findings; backend не имеет AD write API. |
-| 2.7 Источники AD и Security Event Log | **BLOCKED live сейчас** | Оба источника были `pass` в сохранённом scan, но DC сейчас выключен. Gateway/приватный backend не должны выдавать сохранённый статус за свежую проверку. |
-| 2.9 Дополнительные возможности | **PARTIAL, optional** | История и объяснения есть; уведомлений администраторам нет. |
+| Подключение к тестовому AD | PASS | DC `INFRARADAR-DC01`, DNS/AD DS работают; read-only LDAP smoke прошёл |
+| Сбор учётных записей | PASS | 42 пользователя lab OU, 57 групп; `Get-ADDomain`, `Get-ADForest`, `Get-ADDomainController`, `Get-ADUser`, `Get-ADGroup` сверены |
+| Несколько проверок риска | PASS | 45 findings: 1 Critical, 28 High, 10 Medium, 6 Low |
+| Оценка риска | PASS | AD Security Score 71; unit-тесты границ и формулы прошли |
+| Web Dashboard | PASS по API/build; browser QA NOT VERIFIED | HTML, JS/CSS и 15 API-запросов отвечают 200; визуальный браузер в этой сессии недоступен |
+| Проблемы с причинами | PASS | У всех 45 findings есть причина, evidence и рекомендация |
+| Рекомендации | PASS | Автоматических AD write endpoints нет |
+| CSV/Excel/HTML | PASS для CSV | UTF-8 BOM, 14 колонок, 45 строк; прямое открытие в Excel в этой сессии не повторялось |
 
-## Общие требования (4) и демо (5.1)
+## Функциональные сценарии и пределы (2.3–2.7)
 
-- Модульность: отдельные collectors, Risk Engine, storage, frontend; `LDAP_DIRECT` и `AD_GATEWAY`. Gateway возвращает фиксированный нормализованный read-only snapshot, локальный backend считает findings и хранит собственную SQLite.
-- Безопасность: обычный анализ использует отдельных LDAP/Event Log readers без Domain Admin; Gateway HTTPS с индивидуальными отзываемыми токенами и hashed storage. Секреты не входят в Git, frontend bundle, API и CSV по коду и предыдущим проверкам. Текущий серверный scanner доступен через приватный Tailscale Serve; Gateway публично отдаёт только read-only snapshot при авторизации.
-- Пороги, экспорт и понятный интерфейс реализованы. Frontend build в этом аудите прошёл; старый browser QA был ранее, текущую визуальную проверку на работающем DC выполнить нельзя.
-- Пример 5.1: **7** service PNE, **3** disabled privileged и **2** multiple-role были live подтверждены. **10 старых inactive users не создано**: защищённые AD timestamps не подделывались, а ТЗ формулирует эти числа как пример демонстрации, не обязательный критерий MVP.
+- **Пользователи:** 7 `SERVICE_PASSWORD_NEVER_EXPIRES`, 3 `EXPIRED_ACCOUNT`; disabled/locked/PNE и пороги проверяются кодом и тестами. Положительные старый пароль и длительная неактивность остаются `UNIT VERIFIED`, потому что защищённые AD timestamps не подделывались.
+- **Привилегии:** 7 `DIRECT_PRIVILEGE`, 6 `NESTED_PRIVILEGE`, 3 `DISABLED_PRIVILEGED`, 2 `MULTIPLE_PRIVILEGES` в live scan. Пути и циклы групп покрыты тестами.
+- **Политика:** домен `infraradar.test`, 1 FGPP. Read-only PowerShell подтвердил текущие доменные значения: `MinPasswordLength=0`, `ComplexityEnabled=true`, `LockoutThreshold=0`; анализ отмечает риски политики. Положительный слабый FGPP — только unit.
+- **Security Event Log:** отдельный `ir-event-reader` прочитал за 24 часа 4624: 2389, 4625: 107, 4771: 1, 4776: 100. Scan собрал 1293 нормализованных события, статус `pass`, 0 кандидатов на brute force/password spray. Положительные атаки — только unit; реальные атаки для проверки не создавались.
+- **Интерактивные права сервисов:** обновлён read-only снимок применённой политики DC для 7 `svc_*`; источник `pass`, разрешённого local/RDP logon среди них не обнаружено. Данные относятся к DC и становятся неактуальными через 60 минут; состояние RDP-службы и другие хосты не проверялись.
+- **Дополнительный AD-анализ:** компьютер, SPN, delegation и SIDHistory атрибуты читаются. Положительные опасные SIDHistory, duplicate SPN и delegation сценарии остаются `UNIT VERIFIED`; домен ради них не изменяли.
+- **Dashboard/history/export:** общий backend сохранил новый scan в SQLite WAL; API истории, сравнения, аккаунтов, групп, компьютеров, аутентификации, аудита и CSV ответили 200. Локальный backend через Gateway независимо выполнил scan и сохранил собственную историю/CSV.
 
-## Выполненные проверки и ограничение вывода
+Пример раздела 5.1 с **10 неактивными пользователями** в live AD не воспроизведён. ТЗ приводит эти количества как пример демонстрации, а не обязательный критерий MVP. Сценарии 7 service PNE, 3 disabled privileged и 2 multiple-role подтверждены свежим scan.
 
-- `python -m unittest discover`: **28 PASS, 1 live LDAP smoke SKIPPED**. С `RUN_LDAP_SMOKE=1`: **28 PASS, 1 ERROR** из-за тайм-аута к выключенному DC; это проблема доступности стенда, не успешный live smoke.
-- `npm run build`: **PASS**.
-- Приватный Dashboard: HTTP 200, сохранённый scan 42 users, 45 findings, Security Score 71; CSV BOM/14 колонок/45 строк и history из 3 scan доступны. Все эти цифры **исторические**.
-- `ad-gateway.service` и `identity-risk.service`: active; оба uvicorn слушают только `127.0.0.1`. Gateway `/v1/health`: 200 с токеном; `/v1/snapshot`: **503** при выключенном DC.
-- После возврата VM в `Running` нужны: живой Gateway snapshot, `RUN_LDAP_SMOKE=1`, новый локальный и приватный scan, проверка Event Log, затем browser QA с новым результатом. До этого нельзя заявлять, что текущая live-демонстрация полностью готова.
+## Безопасность и выполненные проверки (раздел 4)
+
+- `RUN_LDAP_SMOKE=1 .venv/bin/python -m unittest discover -s tests -q`: **30/30 PASS**. `npm run build`: **PASS**.
+- Tailscale, SSH хоста и DC, Hyper-V VM `Running`, AD DS, DNS и LDAP: **PASS**. Reader `ir-ldap-reader` состоит только в `Domain Users`; Event Log reader — в `Domain Users` и `Event Log Readers`. Ни один не состоит в `Domain Admins`.
+- Реальные секреты из локального окружения и личные Gateway tokens сверены с ответами Dashboard/Accounts/Findings/CSV: совпадений нет. Секреты не выводились.
+- Приватный backend доступен через Tailscale Serve; публичный Gateway требует личный токен и возвращает read-only snapshot. Общий Dashboard API для Vercel пока **не опубликован**.
+- Визуальный desktop/mobile browser QA **NOT VERIFIED в этой сессии**: browser runtime не предоставил браузер. Предыдущие browser-проверки описаны в `TZ_COMPLIANCE.md`, но не выдаются здесь за свежие.
