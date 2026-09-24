@@ -69,4 +69,8 @@ RUN_LDAP_SMOKE=1 .venv/bin/python -m unittest discover -s tests -v
 cd ../frontend && npm run build
 ```
 
-Live scan 2026-09-24 после обновления данных: 42 lab users, 57 groups, 1 computer, 1 FGPP, 43 findings, score 73/100; Security Event Log `pass`, 0 auth findings. Подробная проверка и честные статусы в [docs/TZ_COMPLIANCE.md](docs/TZ_COMPLIANCE.md) и [docs/FINAL_AUDIT.md](docs/FINAL_AUDIT.md). Веб-приложение не имеет собственной авторизации: используйте его только локально. Security Event Log читает отдельный минимально привилегированный reader; frontend и edge cases проверены в Chrome headless на 1440/390 px.
+Live scan 2026-09-24 после обновления данных: 42 lab users, 57 groups, 1 computer, 1 FGPP, 45 findings, score 71/100; 7 service Password Never Expires, 3 disabled privileged, 2 multiple-role users; Security Event Log `pass`, 0 auth findings. Подробная проверка и честные статусы в [docs/TZ_COMPLIANCE.md](docs/TZ_COMPLIANCE.md) и [docs/FINAL_AUDIT.md](docs/FINAL_AUDIT.md). Веб-приложение не имеет собственной авторизации: используйте его только локально. Security Event Log читает отдельный минимально привилегированный reader; frontend и edge cases проверены в Chrome headless на 1440/390 px.
+
+## Общий командный стенд
+
+Приложение развёртывается на отдельном DigitalOcean Droplet с backend на `127.0.0.1:8011`, одним uvicorn worker и SQLite WAL. Для команды используется только Tailscale Serve; публичный IP не обслуживает это приложение. См. [docs/TEAM_ACCESS.md](docs/TEAM_ACCESS.md). Оператор обновляет стенд через `sudo bash deploy/deploy.sh <approved-commit>`; скрипт не меняет `backend/.env` и после перезапуска проверяет живой LDAP scan, Event Log, API, frontend и SQLite. Локальная разработка с `npm run dev` и backend на `127.0.0.1:8000` сохраняется.

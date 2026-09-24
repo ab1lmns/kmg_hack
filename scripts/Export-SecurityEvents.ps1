@@ -2,13 +2,16 @@
 $ErrorActionPreference = 'Stop'
 $start = (Get-Date).AddHours(-24)
 $ids = 4624,4625,4771,4776
+$maxEvents = 5000
 try {
     $events = @(Get-WinEvent -FilterHashtable @{LogName='Security'; Id=$ids; StartTime=$start} `
-        -MaxEvents 2000 -ErrorAction Stop)
+        -MaxEvents ($maxEvents + 1) -ErrorAction Stop)
 } catch {
     if ($_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*') { $events = @() }
     else { throw }
 }
+$truncated = $events.Count -gt $maxEvents
+if ($truncated) { $events = @($events[0..($maxEvents - 1)]) }
 $rows = foreach ($event in $events) {
     [xml]$xml = $event.ToXml()
     $data = @{}
@@ -25,6 +28,6 @@ $rows = foreach ($event in $events) {
 [pscustomobject]@{
     target_host = $env:COMPUTERNAME
     exported_at = (Get-Date).ToUniversalTime().ToString('o')
-    truncated = ($events.Count -ge 2000)
+    truncated = $truncated
     events = @($rows)
 } | ConvertTo-Json -Depth 5 -Compress

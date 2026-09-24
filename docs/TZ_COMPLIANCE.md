@@ -8,12 +8,12 @@
 |---|---|---|
 | Подключение к тестовому AD | PASS | LIVE VERIFIED: LDAP bind `ir-ldap-reader`, 100.93.42.103:389 |
 | Сбор пользователей | PASS | LIVE VERIFIED: 42 аккаунта lab OU (33 сотрудника, 7 сервисных, 2 reader), 57 групп для путей |
-| Несколько проверок риска | PASS | LIVE VERIFIED: 43 находки; дополнительные положительные случаи UNIT VERIFIED |
-| Risk Score | PASS | LIVE VERIFIED: аккаунты/политика/компьютер, score 73; границы UNIT VERIFIED |
+| Несколько проверок риска | PASS | LIVE VERIFIED: 45 находок; дополнительные положительные случаи UNIT VERIFIED |
+| Risk Score | PASS | LIVE VERIFIED: аккаунты/политика/компьютер, score 71; границы UNIT VERIFIED |
 | Web Dashboard | PASS | API + frontend build; LIVE BROWSER VERIFIED: Dashboard desktop/mobile |
-| Список проблем с причинами | PASS | LIVE VERIFIED: 43 finding с reason/evidence, API + CSV |
+| Список проблем с причинами | PASS | LIVE VERIFIED: 45 finding с reason/evidence, API + CSV |
 | Рекомендации | PASS | LIVE VERIFIED: у каждой находки непустой recommendation |
-| Экспорт CSV/Excel/HTML | PASS | LIVE VERIFIED: CSV UTF-8 BOM, 43 строки, 14 колонок; русский текст и разделение колонок подтверждены прямым открытием в Microsoft Excel |
+| Экспорт CSV/Excel/HTML | PASS | LIVE VERIFIED: CSV UTF-8 BOM, 45 строк, 14 колонок; русский текст и разделение колонок подтверждены прямым открытием в Microsoft Excel |
 
 ## Пользователи, активность и пароли
 
@@ -29,7 +29,7 @@
 | Disabled account | PASS | LIVE VERIFIED: реальные lab account findings |
 | PASSWORD_NOT_REQUIRED | PARTIAL | UNIT VERIFIED: UAC bit; live положительного примера нет |
 | Неиспользуемый service account | PARTIAL | UNIT VERIFIED; нет старого service activity в live |
-| Service с Password Never Expires | PASS | LIVE VERIFIED: реальные сервисные аккаунты |
+| Service с Password Never Expires | PASS | LIVE VERIFIED: все 7 разных сервисных аккаунтов; пять прежних флагов сохранены, два добавлены только в lab OU |
 | Service с избыточными правами | PASS | LIVE VERIFIED: вложенная lab OU группа и фактический ACL тестовой OU |
 | Service с разрешённым interactive logon | PARTIAL | LIVE VERIFIED: merged rights DC + полный token SID для 7 lab services, все 7 PASS (права не разрешены); положительный finding UNIT VERIFIED; другие целевые хосты и дополнительные ограничения входа NOT EVALUATED |
 | Владелец сервиса | PARTIAL | LIVE VERIFIED: чтение настраиваемого `managedBy`; отсутствие атрибута не доказывает отсутствие ответственного |
@@ -64,7 +64,7 @@
 
 | Требование | Статус | Доказательство / предел |
 |---|---|---|
-| Security Event Log как отдельный источник | PASS | LIVE VERIFIED: постоянный scan через `ir-event-reader` из lab OU, только Event Log Readers; 986 нормализованных событий, source `pass` |
+| Security Event Log как отдельный источник | PASS | LIVE VERIFIED: постоянный scan через `ir-event-reader` из lab OU, только Event Log Readers; более 1000 нормализованных событий за 24 ч, source `pass` |
 | Нормализация 4624/4625/4771/4776 | PASS | LIVE VERIFIED: под отдельным reader прочитаны все 4 ID, включая 4771 после включения failure Kerberos audit на DC; поле XML `Status` проверено |
 | Possible Brute Force | PARTIAL | UNIT VERIFIED: окно, пользователь, source, timestamps, дедупликация; live scan `pass` без кандидата; позитивная эвристика только UNIT VERIFIED |
 | Possible Password Spray | PARTIAL | UNIT VERIFIED: один source, много usernames, мало ошибок на каждого; live scan `pass` без кандидата; позитивная эвристика только UNIT VERIFIED |
@@ -78,12 +78,12 @@
 | Dashboard score, severity, counts, top, categories, history | PASS | LIVE VERIFIED API и Chrome headless на 1440/390 px; добавлены locked/expired/computers/auth source |
 | Accounts filters/sorting and details | PASS | LIVE BROWSER VERIFIED: desktop/mobile, карточка, поиск в Accounts/Risks; новые поля/фильтры |
 | Computers, Authentication, FGPP UI | PASS | LIVE BROWSER VERIFIED: страницы desktop/mobile, реальный Event Log `pass`, no findings и error/partial/not_evaluated состояния |
-| Findings: общая схема/evidence/recommendation/source/time/confidence | PASS | LIVE VERIFIED: все 43 непустые, CSV/API |
+| Findings: общая схема/evidence/recommendation/source/time/confidence | PASS | LIVE VERIFIED: все 45 непустые, CSV/API |
 | Настройки/валидация/сохранение | PASS | UNIT VERIFIED: границы и Medium < High < Critical, API persistence; UI build |
 | Audit действий, включая Event Log/auth | PASS | LIVE VERIFIED: scan/connection/export; scan пишет event/auth status; секреты не логируются по code review |
-| CSV: объект, score, severity, category, source, evidence | PASS | LIVE VERIFIED: 43 строки, 14 колонок, UTF-8 BOM, `;` delimiter; Microsoft Excel открыл русский текст и колонки корректно |
+| CSV: объект, score, severity, category, source, evidence | PASS | LIVE VERIFIED: 45 строк, 14 колонок, UTF-8 BOM, `;` delimiter; Microsoft Excel открыл русский текст и колонки корректно |
 | SQLite schema/version, corruption, atomicity, concurrency | PASS | UNIT VERIFIED: schema v2, WAL, транзакции, восстановление; LIVE VERIFIED: persisted scan после restart |
-| Производительность/batch LDAP/timings | PASS | LIVE VERIFIED: scan 5,75 с на 42 user/57 groups/1 computer и 1036 Security events; timings API (LDAP 156 мс, события 5,59 с) |
+| Производительность/batch LDAP/timings | PASS | LIVE VERIFIED: scan около 7 с на 42 user/57 groups/1 computer и 1076 Security events; timings API |
 | Ошибки DC/credentials/timeout/malformed DB/settings/partial events | PARTIAL | Validation/storage/collector UNIT VERIFIED; frontend edge cases пройдены на локальных API fixtures, реальный DC outage не создавался |
 | Backend read-only и минимальные права | PASS | LIVE VERIFIED: LDAP reader только Domain Users; event reader в lab OU состоит из Domain Users и builtin Event Log Readers, без admin token; оба используются обычным scan |
 | Пароли/секреты не в API/SQLite/CSV/log | PASS | Code review + live response/CSV review; `.env` ignored, mode 600 |

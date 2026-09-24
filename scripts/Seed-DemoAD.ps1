@@ -12,15 +12,15 @@ $company = 'InfraRadar Group'
 
 # Legacy name, target samAccountName, given name, surname, department, title, type.
 $people = @(
-    @('ir-alice','a.sadykov','Aidar','Sadykov','IT','Systems Engineer','employee'),
-    @('ir-bob','d.iskakov','Daniyar','Iskakov','Operations','Operations Analyst','employee'),
-    @('ir-carol','a.kassymova','Aigerim','Kassymova','IT','Helpdesk Specialist','employee'),
-    @('ir-demo-01','m.nurgaliyev','Murat','Nurgaliyev','Finance','Financial Analyst','employee'),
-    @('ir-demo-02','z.akhmetova','Zarina','Akhmetova','HR','HR Business Partner','employee'),
-    @('ir-demo-03','a.orynbek','Asel','Orynbek','Legal','Legal Counsel','employee'),
-    @('ir-demo-04','n.tulegenov','Nurlan','Tulegenov','Sales','Account Manager','employee'),
-    @('ir-demo-05','s.aliyeva','Saltanat','Aliyeva','Security','Security Analyst','employee'),
-    @('ir-demo-06','e.ivanov','Erik','Ivanov','IT','Infrastructure Engineer','employee'),
+    @('ir-alice','a.sadykov','Aidar','Sadykov','IT','IT Infrastructure Lead','employee'),
+    @('ir-bob','d.iskakov','Daniyar','Iskakov','Operations','Operations Manager','employee'),
+    @('ir-carol','a.kassymova','Aigerim','Kassymova','Support','Helpdesk Specialist','employee'),
+    @('ir-demo-01','m.nurgaliyev','Murat','Nurgaliyev','Finance','Finance Manager','employee'),
+    @('ir-demo-02','z.akhmetova','Zarina','Akhmetova','HR','HR Manager','employee'),
+    @('ir-demo-03','a.orynbek','Asel','Orynbek','Legal','Legal Lead','employee'),
+    @('ir-demo-04','n.tulegenov','Nurlan','Tulegenov','Sales','Sales Manager','employee'),
+    @('ir-demo-05','s.aliyeva','Saltanat','Aliyeva','Information Security','Security Manager','employee'),
+    @('ir-demo-06','e.ivanov','Erik','Ivanov','Infrastructure','Infrastructure Engineer','employee'),
     @('ir-demo-07','r.saparov','Rustem','Saparov','Operations','Shift Supervisor','employee'),
     @('ir-demo-08','k.zhumabek','Kairat','Zhumabek','Finance','Accountant','employee'),
     @('ir-demo-09','l.serikova','Laura','Serikova','Sales','Sales Operations Specialist','employee'),
@@ -35,15 +35,15 @@ $people = @(
     @('ir-dis-admin2','adm.a.kassymova','Aigerim','Kassymova','IT','Former Helpdesk Administrator','admin'),
     @('ir-accountop','adm.m.nurgaliyev','Murat','Nurgaliyev','Finance','Account Operator','admin'),
     @('ir-serverop','adm.e.ivanov','Erik','Ivanov','IT','Server Operator','admin'),
-    @($null,'p.kuandykova','Perizat','Kuandykova','Finance','Procurement Analyst','employee'),
+    @($null,'p.kuandykova','Perizat','Kuandykova','Procurement','Procurement Analyst','employee'),
     @($null,'a.bekov','Arman','Bekov','Sales','Sales Manager','employee'),
     @($null,'d.seitova','Dana','Seitova','Legal','Compliance Officer','employee'),
-    @($null,'v.kim','Viktor','Kim','Security','SOC Analyst','employee'),
+    @($null,'v.kim','Viktor','Kim','Information Security','SOC Analyst','employee'),
     @($null,'n.omarov','Nursultan','Omarov','Operations','Logistics Coordinator','employee'),
     @($null,'f.askarova','Farida','Askarova','HR','Recruiter','employee'),
-    @($null,'i.zhaksylykov','Ilyas','Zhaksylykov','IT','Software Engineer','employee'),
+    @($null,'i.zhaksylykov','Ilyas','Zhaksylykov','Infrastructure','Software Engineer','employee'),
     @($null,'j.ospanova','Zhanar','Ospanova','Finance','Finance Controller','employee'),
-    @($null,'q.bolatov','Kuanish','Bolatov','Security','GRC Specialist','employee'),
+    @($null,'q.bolatov','Kuanish','Bolatov','Information Security','GRC Specialist','employee'),
     @($null,'s.romanenko','Sofia','Romanenko','Sales','Sales Analyst','employee')
 )
 # Existing service accounts keep their current SPNs and security posture.
@@ -108,6 +108,29 @@ foreach ($row in $people) {
         -Company $company -Description $description
     if ($user.Name -ne $display) { Rename-ADObject -Identity $user.DistinguishedName -NewName $display }
 }
+$managerByDepartment = @{
+    'Finance' = 'm.nurgaliyev'
+    'HR' = 'z.akhmetova'
+    'IT' = 'a.sadykov'
+    'Information Security' = 's.aliyeva'
+    'Operations' = 'd.iskakov'
+    'Legal' = 'a.orynbek'
+    'Sales' = 'n.tulegenov'
+    'Procurement' = 'm.nurgaliyev'
+    'Infrastructure' = 'a.sadykov'
+    'Support' = 'a.sadykov'
+}
+foreach ($row in $people) {
+    if ($row[6] -ne 'employee') { continue }
+    $sam = $row[1]
+    $managerSam = $managerByDepartment[$row[4]]
+    if (-not $managerSam -or $sam -eq $managerSam) { continue }
+    $user = Get-ADUser -Identity $sam
+    $manager = Get-ADUser -Identity $managerSam
+    Assert-LabUser $user
+    Assert-LabUser $manager
+    Set-ADUser -Identity $user.DistinguishedName -Manager $manager.DistinguishedName
+}
 foreach ($row in $services) {
     $oldName,$newName,$display = $row
     $user = $current[$newName]
@@ -116,6 +139,13 @@ foreach ($row in $services) {
         -Department 'IT' -Title $display -Company $company `
         -Description "Non-interactive lab service identity; $display"
     if ($user.Name -ne $display) { Rename-ADObject -Identity $user.DistinguishedName -NewName $display }
+    # The demo requires seven real service Password Never Expires findings.
+    # This flag is confined to the existing lab service account; passwords are
+    # never reset or exposed and each account retains its distinct memberships.
+    $service = Get-ADUser -Identity $newName -Properties PasswordNeverExpires
+    if (-not $service.PasswordNeverExpires) {
+        Set-ADUser -Identity $service.DistinguishedName -PasswordNeverExpires $true
+    }
 }
 [pscustomobject]@{
     Domain = 'infraradar.test'

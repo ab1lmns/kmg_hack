@@ -20,7 +20,8 @@ class LiveLdapTests(unittest.TestCase):
         self.assertIn("adm.a.sadykov", names)
         self.assertNotIn("ir-domainadmin", names)
         self.assertEqual(sum(account.service_account for account in snapshot.accounts), 7)
-        self.assertTrue({"Finance", "HR", "IT", "Security", "Operations", "Legal", "Sales"}.issubset(
+        self.assertTrue({"Finance", "HR", "IT", "Information Security", "Operations", "Legal", "Sales",
+                         "Procurement", "Infrastructure", "Support"}.issubset(
             {account.department for account in snapshot.accounts}))
         self.assertEqual(snapshot.domain_policy["max_password_age_days"], 42)
         self.assertEqual(snapshot.domain_policy["lockout_duration_minutes"], 30)

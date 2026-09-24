@@ -63,7 +63,12 @@ if (-not $profile -or -not (Test-Path $profile)) { throw 'Event reader profile p
 $sshDir = Join-Path $profile '.ssh'
 $authorized = Join-Path $sshDir 'authorized_keys'
 $null = New-Item -ItemType Directory -Path $sshDir -Force
-Set-Content -Path $authorized -Value $PublicKey.Trim() -Encoding ascii
+$key = $PublicKey.Trim()
+$existingKeys = if (Test-Path $authorized) { @(Get-Content $authorized) } else { @() }
+if ($key -notin $existingKeys) {
+    if ($existingKeys.Count) { Add-Content -Path $authorized -Value $key -Encoding ascii }
+    else { Set-Content -Path $authorized -Value $key -Encoding ascii }
+}
 $sid = $user.SID.Value
 foreach ($path in @($profile, $sshDir)) {
     & icacls.exe $path /inheritance:r /grant:r "*${sid}:(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
