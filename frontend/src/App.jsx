@@ -141,7 +141,7 @@ export default function App() {
       commit()
     } else {
       setTransition('exit')
-      transitionTimer.current = setTimeout(commit, 200)
+      transitionTimer.current = setTimeout(commit, 140)
     }
   }
 
