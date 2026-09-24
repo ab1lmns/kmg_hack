@@ -48,6 +48,19 @@ def _list(value) -> list[str]:
     return [str(item) for item in (value if isinstance(value, list) else [value])]
 
 
+def _scalar(value):
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def _int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _date(value) -> str | None:
     if isinstance(value, datetime):
         if value.tzinfo is None:
@@ -66,10 +79,10 @@ def _first_rdn(dn: str) -> str:
     return dn.split(",", 1)[0].split("=", 1)[-1]
 
 
-def collect_ldap(settings: Settings, password: str | None = None) -> Snapshot:
-    bind_password = password or settings.ldap_password
+def collect_ldap(settings: Settings) -> Snapshot:
+    bind_password = settings.ldap_password
     if not all([settings.ldap_host, settings.ldap_base_dn, settings.ldap_username, bind_password]):
-        raise CollectorError("Укажите LDAP_HOST, LDAP_BASE_DN и LDAP_USERNAME; пароль сканера введите в интерфейсе")
+        raise CollectorError("Укажите LDAP_HOST, LDAP_BASE_DN, LDAP_USERNAME и LDAP_PASSWORD в окружении backend")
     try:
         from ldap3 import ALL, SUBTREE, Connection, Server, Tls
 
@@ -84,11 +97,12 @@ def collect_ldap(settings: Settings, password: str | None = None) -> Snapshot:
             auto_bind=True, receive_timeout=20, raise_exceptions=True,
         ) as connection:
             users = list(connection.extend.standard.paged_search(
-                settings.ldap_base_dn,
+                settings.ldap_user_base_dn or settings.ldap_base_dn,
                 "(&(objectCategory=person)(objectClass=user))",
                 search_scope=SUBTREE,
                 attributes=[
-                    "objectGUID", "distinguishedName", "sAMAccountName", "displayName",
+                    "objectGUID", "objectSid", "distinguishedName", "sAMAccountName",
+                    "userPrincipalName", "displayName", "whenCreated", "primaryGroupID", "adminCount",
                     "description", "department", "userAccountControl", "lastLogonTimestamp",
                     "pwdLastSet", "accountExpires", "lockoutTime", "memberOf",
                     "servicePrincipalName", "managedBy", "msDS-User-Account-Control-Computed",
@@ -97,7 +111,7 @@ def collect_ldap(settings: Settings, password: str | None = None) -> Snapshot:
             ))
             groups_raw = list(connection.extend.standard.paged_search(
                 settings.ldap_base_dn, "(objectClass=group)", search_scope=SUBTREE,
-                attributes=["objectGUID", "distinguishedName", "sAMAccountName", "memberOf"],
+                attributes=["objectGUID", "objectSid", "distinguishedName", "sAMAccountName", "memberOf"],
                 paged_size=500, generator=True,
             ))
             policy_attrs = ["minPwdLength", "pwdProperties", "lockoutThreshold"]
@@ -121,14 +135,17 @@ def collect_ldap(settings: Settings, password: str | None = None) -> Snapshot:
     for row in groups_raw:
         if row.get("type") != "searchResEntry":
             continue
-        attrs = row["attributes"]
+        attrs = {key: value if key == "memberOf" else _scalar(value)
+                 for key, value in row["attributes"].items()}
         dn = str(attrs.get("distinguishedName") or row.get("dn") or "")
         groups.append(Group(
             id=dn.lower(), name=str(attrs.get("sAMAccountName") or _first_rdn(dn)),
-            distinguished_name=dn,
+            distinguished_name=dn, object_guid=str(attrs.get("objectGUID") or ""),
+            sid=str(attrs.get("objectSid") or ""),
             member_of=_list(attrs.get("memberOf")),
         ))
     group_by_dn = {group.distinguished_name.lower(): group.name for group in groups}
+    group_by_sid = {group.sid: group.name for group in groups if group.sid}
     for group in groups:
         group.member_of = [group_by_dn.get(dn.lower(), dn) for dn in group.member_of]
 
@@ -137,13 +154,14 @@ def collect_ldap(settings: Settings, password: str | None = None) -> Snapshot:
     for row in users:
         if row.get("type") != "searchResEntry":
             continue
-        attrs = row["attributes"]
+        attrs = {key: value if key in ("memberOf", "servicePrincipalName") else _scalar(value)
+                 for key, value in row["attributes"].items()}
         username = str(attrs.get("sAMAccountName") or "")
         if not username:
             continue
         dn = str(attrs.get("distinguishedName") or row.get("dn") or "")
-        flags = int(attrs.get("userAccountControl") or 0)
-        computed = int(attrs.get("msDS-User-Account-Control-Computed") or 0)
+        flags = _int(attrs.get("userAccountControl"))
+        computed = _int(attrs.get("msDS-User-Account-Control-Computed"))
         expire_at = _date(attrs.get("accountExpires"))
         last_logon = _date(attrs.get("lastLogonTimestamp"))
         password_set = _date(attrs.get("pwdLastSet"))
@@ -152,14 +170,25 @@ def collect_ldap(settings: Settings, password: str | None = None) -> Snapshot:
         service_markers = []
         if spns:
             service_markers.append("SPN")
-        if username.lower().startswith(("svc_", "sa_", "service_")):
+        if username.lower().startswith(("svc_", "svc-", "ir-svc-", "sa_", "service_")):
             service_markers.append("префикс имени")
         if "ou=service accounts" in dn.lower():
             service_markers.append("OU Service Accounts")
+        sid = str(attrs.get("objectSid") or "")
+        primary_group_id = _int(attrs.get("primaryGroupID")) or None
+        direct_groups = [group_by_dn.get(name.lower(), name) for name in _list(attrs.get("memberOf"))]
+        if sid and primary_group_id:
+            primary_group = group_by_sid.get(f"{sid.rsplit('-', 1)[0]}-{primary_group_id}")
+            if primary_group and primary_group not in direct_groups:
+                direct_groups.append(primary_group)
         accounts.append(Account(
             id=dn.lower(), username=username,
             display_name=str(attrs.get("displayName") or username),
-            distinguished_name=dn,
+            distinguished_name=dn, object_guid=str(attrs.get("objectGUID") or ""),
+            sid=sid, user_principal_name=str(attrs.get("userPrincipalName") or ""),
+            primary_group_id=primary_group_id,
+            admin_count=_int(attrs.get("adminCount"), None),
+            when_created=_date(attrs.get("whenCreated")),
             department=str(attrs.get("department") or ""),
             description=str(attrs.get("description") or ""),
             enabled=not bool(flags & 0x2),
@@ -170,7 +199,7 @@ def collect_ldap(settings: Settings, password: str | None = None) -> Snapshot:
             password_not_required=bool(flags & 0x20),
             service_account=bool(service_markers), service_reason=", ".join(service_markers),
             owner=_first_rdn(managed_by) if managed_by else None,
-            groups=[group_by_dn.get(name.lower(), name) for name in _list(attrs.get("memberOf"))],
+            groups=direct_groups,
             spns=spns,
         ))
     return Snapshot(source="ldap", accounts=accounts, groups=groups, domain_policy=policy)

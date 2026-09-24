@@ -10,6 +10,19 @@ CRITICAL_GROUPS = {
     "account operators", "server operators", "backup operators", "dnsadmins",
 }
 POINTS = {"critical": 40, "high": 25, "medium": 10, "low": 5}
+DEFAULT_RISK_THRESHOLDS = (30, 60, 80)  # Medium, High, Critical
+RULE_CATEGORIES = {
+    "DISABLED_ACCOUNT": "identity", "INACTIVE_ACCOUNT": "identity",
+    "EXPIRED_ACCOUNT": "identity", "LOCKED_ACCOUNT": "identity",
+    "PASSWORD_NEVER_EXPIRES": "password", "SERVICE_PASSWORD_NEVER_EXPIRES": "password",
+    "OLD_PASSWORD": "password", "PASSWORD_NOT_REQUIRED": "password",
+    "DIRECT_PRIVILEGE": "privilege", "NESTED_PRIVILEGE": "privilege",
+    "DISABLED_PRIVILEGED": "privilege", "INACTIVE_PRIVILEGED": "privilege",
+    "MULTIPLE_PRIVILEGES": "privilege", "SERVICE_PRIVILEGED": "service",
+    "INACTIVE_SERVICE": "service", "MISSING_OWNER": "service",
+    "SHORT_MIN_PASSWORD": "domain_policy", "NO_PASSWORD_COMPLEXITY": "domain_policy",
+    "NO_LOCKOUT": "domain_policy",
+}
 
 
 def days_since(value: str | None) -> int | None:
@@ -22,16 +35,31 @@ def days_since(value: str | None) -> int | None:
         return None
 
 
-def risk_level(score: int) -> str:
-    if score >= 80:
+def risk_level(score: int, thresholds: tuple[int, int, int] = DEFAULT_RISK_THRESHOLDS) -> str:
+    medium, high, critical = thresholds
+    if score >= critical:
         return "critical"
-    if score >= 60:
+    if score >= high:
         return "high"
-    if score >= 30:
+    if score >= medium:
         return "medium"
     if score > 0:
         return "low"
     return "safe"
+
+
+def score_findings(findings: list[dict[str, Any]],
+                   thresholds: tuple[int, int, int] = DEFAULT_RISK_THRESHOLDS) -> int:
+    """Highest severity sets the band; additional evidence raises score within it."""
+    if not findings:
+        return 0
+    medium, high, critical = thresholds
+    bands = {"low": (10, medium - 1), "medium": (medium, high - 1),
+             "high": (high, critical - 1), "critical": (critical, 100)}
+    highest = max(findings, key=lambda item: POINTS[item["severity"]])
+    base, ceiling = bands[highest["severity"]]
+    additional = sum(item["score"] for item in findings) - highest["score"]
+    return min(ceiling, base + round(additional * 0.3))
 
 
 def privilege_paths(account: Account, parents: dict[str, list[str]],
@@ -58,13 +86,15 @@ def finding(account: Account, rule_id: str, title: str, severity: str,
         "id": f"{account.id}:{rule_id}", "account_id": account.id,
         "username": account.username, "account_type": "service" if account.service_account else "user",
         "rule_id": rule_id, "title": title, "severity": severity,
+        "category": RULE_CATEGORIES.get(rule_id, "other"),
         "score": POINTS[severity], "reason": reason,
         "evidence": evidence or {}, "recommendation": recommendation,
     }
 
 
 def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int = 180,
-            critical_groups: set[str] = CRITICAL_GROUPS) -> dict[str, Any]:
+            critical_groups: set[str] = CRITICAL_GROUPS,
+            risk_thresholds: tuple[int, int, int] = DEFAULT_RISK_THRESHOLDS) -> dict[str, Any]:
     parents = {group.name.lower(): group.member_of for group in snapshot.groups}
     all_findings: list[dict[str, Any]] = []
     accounts: list[dict[str, Any]] = []
@@ -74,18 +104,27 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
         account_critical_groups = sorted({path[-1] for path in paths})
         privileged = bool(paths)
         login_age = days_since(account.last_logon)
+        created_age = days_since(account.when_created)
         password_age = days_since(account.password_last_set)
         findings: list[dict[str, Any]] = []
+        inactive = account.enabled and (login_age is not None and login_age >= inactive_days or
+            login_age is None and created_age is not None and created_age >= inactive_days)
 
-        if account.enabled and (login_age is None or login_age >= inactive_days):
+        if not account.enabled:
+            findings.append(finding(account, "DISABLED_ACCOUNT", "Отключённая учётная запись",
+                "low", "Учётная запись отключена, но остаётся в каталоге",
+                "Проверьте срок хранения и необходимость учётной записи по внутренней процедуре.",
+                {"enabled": False}))
+        if inactive:
             reason = ("Не найдено записи о последнем входе" if login_age is None
                       else f"Последний вход {login_age} дней назад")
             findings.append(finding(account, "INACTIVE_ACCOUNT", "Неактивная учётная запись",
                 "medium", reason, "Уточните у владельца необходимость аккаунта; отключите его, если он больше не нужен.",
-                {"last_logon": account.last_logon, "days_since_login": login_age, "threshold_days": inactive_days,
+                {"last_logon": account.last_logon, "days_since_login": login_age,
+                 "days_since_creation": created_age, "threshold_days": inactive_days,
                  "note": "lastLogonTimestamp обновляется с задержкой и не является точным временем последнего входа."}))
         if account.password_never_expires:
-            findings.append(finding(account, "PASSWORD_NEVER_EXPIRES", "Срок действия пароля не ограничен",
+            findings.append(finding(account, "SERVICE_PASSWORD_NEVER_EXPIRES" if account.service_account else "PASSWORD_NEVER_EXPIRES", "Срок действия пароля не ограничен",
                 "high" if privileged or account.service_account else "medium", "Установлен флаг Password Never Expires",
                 "Определите владельца и настройте контролируемую ротацию пароля.",
                 {"password_never_expires": True}))
@@ -126,7 +165,7 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
                 findings.append(finding(account, "DISABLED_PRIVILEGED", "Отключённый аккаунт сохраняет административные права",
                     "high", "Учётная запись отключена, но остаётся в критической группе",
                     "Проверьте необходимость членства и удалите лишние права.", {"paths": paths}))
-            if account.enabled and (login_age is None or login_age >= inactive_days):
+            if inactive:
                 findings.append(finding(account, "INACTIVE_PRIVILEGED", "Неактивный привилегированный аккаунт",
                     "critical", "Аккаунт имеет административные права, но давно не использовался",
                     "Проверьте владельца и необходимость доступа; удалите лишние административные права.",
@@ -142,7 +181,7 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
                     "critical", "Сервисный аккаунт имеет доступ к критической группе",
                     "Проверьте зависимости сервиса и сократите права до минимально необходимых.",
                     {"paths": paths, "service_reason": account.service_reason}))
-            if login_age is None or login_age >= inactive_days:
+            if inactive:
                 findings.append(finding(account, "INACTIVE_SERVICE", "Неиспользуемый сервисный аккаунт",
                     "high" if account.enabled else "medium", "Сервисный аккаунт не проявлял активности",
                     "Проверьте связанные службы и владельца; отключите аккаунт, если он не нужен.",
@@ -150,11 +189,12 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
         if not account.owner and account.service_account:
             findings.append(finding(account, "MISSING_OWNER", "Не указан ответственный",
                 "medium", "У сервисного аккаунта не заполнен ответственный в Active Directory",
-                "Назначьте владельца и внесите его в инвентаризацию.", {}))
+                "Назначьте владельца и внесите его в инвентаризацию.",
+                {"managed_by_missing": True}))
 
-        score = min(100, sum(item["score"] for item in findings))
+        score = score_findings(findings, risk_thresholds)
         item = account.to_dict()
-        item.update({"risk_score": score, "risk_level": risk_level(score),
+        item.update({"risk_score": score, "risk_level": risk_level(score, risk_thresholds),
                      "privileged": privileged, "critical_groups": account_critical_groups,
                      "privilege_paths": paths, "findings": findings})
         accounts.append(item)
@@ -181,6 +221,7 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
                     "id": f"domain:{rule_id}", "account_id": "__domain__", "username": "Политика домена",
                     "account_type": "domain", "rule_id": rule_id, "title": title,
                     "severity": severity, "score": POINTS[severity], "reason": reason,
+                    "category": RULE_CATEGORIES.get(rule_id, "domain_policy"),
                     "evidence": {field: value}, "recommendation": recommendation,
                 })
     all_findings.extend(policy_findings)
@@ -196,6 +237,8 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
         "source": snapshot.source,
         "scanned_at": datetime.now(timezone.utc).isoformat(),
         "thresholds": {"inactive_days": inactive_days, "old_password_days": old_password_days},
+        "risk_thresholds": {"medium": risk_thresholds[0], "high": risk_thresholds[1],
+                            "critical": risk_thresholds[2]},
         "domain_policy": snapshot.domain_policy,
         "domain_policy_risk_score": domain_risk_score,
         "domain_policy_findings": policy_findings,
@@ -204,6 +247,8 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
             "total_users": len(accounts),
             "service_accounts": sum(item["service_account"] for item in accounts),
             "privileged_accounts": sum(item["privileged"] for item in accounts),
+            "healthy_accounts": sum(item["risk_score"] == 0 for item in accounts),
+            "disabled_accounts": sum(not item["enabled"] for item in accounts),
             "inactive_accounts": sum(any(finding["rule_id"] == "INACTIVE_ACCOUNT" for finding in item["findings"])
                                      for item in accounts),
             "finding_count": len(all_findings),
@@ -214,5 +259,6 @@ def analyze(snapshot: Snapshot, inactive_days: int = 90, old_password_days: int 
                 for item in accounts[:5]],
         },
         "accounts": accounts,
+        "groups": [group.to_dict() for group in snapshot.groups],
         "findings": all_findings,
     }

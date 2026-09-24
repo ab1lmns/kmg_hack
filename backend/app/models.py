@@ -8,6 +8,12 @@ class Account:
     username: str
     display_name: str
     distinguished_name: str = ""
+    object_guid: str = ""
+    sid: str = ""
+    user_principal_name: str = ""
+    primary_group_id: int | None = None
+    admin_count: int | None = None
+    when_created: str | None = None
     department: str = ""
     description: str = ""
     enabled: bool = True
@@ -32,6 +38,8 @@ class Group:
     id: str
     name: str
     distinguished_name: str = ""
+    object_guid: str = ""
+    sid: str = ""
     member_of: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,4 +52,3 @@ class Snapshot:
     accounts: list[Account]
     groups: list[Group]
     domain_policy: dict[str, Any] = field(default_factory=dict)
-

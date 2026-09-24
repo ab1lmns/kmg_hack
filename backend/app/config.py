@@ -12,9 +12,8 @@ def load_dotenv() -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        if key.strip() == "LDAP_PASSWORD":
-            continue
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        key = key.strip()
+        os.environ.setdefault(key, value if key == "LDAP_PASSWORD" else value.strip().strip('"').strip("'"))
 
 
 load_dotenv()
@@ -33,16 +32,27 @@ class Settings:
     ldap_use_ssl: bool = os.getenv("LDAP_USE_SSL", "false").lower() == "true"
     ldap_validate_cert: bool = os.getenv("LDAP_VALIDATE_CERT", "true").lower() == "true"
     ldap_base_dn: str = os.getenv("LDAP_BASE_DN", "")
+    ldap_user_base_dn: str = os.getenv("LDAP_USER_BASE_DN", os.getenv("LDAP_BASE_DN", ""))
     ldap_username: str = os.getenv("LDAP_USERNAME", "")
     ldap_password: str = os.getenv("LDAP_PASSWORD", "")
     inactive_days: int = int(os.getenv("INACTIVE_DAYS", "90"))
     old_password_days: int = int(os.getenv("OLD_PASSWORD_DAYS", "180"))
+    risk_medium_threshold: int = int(os.getenv("RISK_MEDIUM_THRESHOLD", "30"))
+    risk_high_threshold: int = int(os.getenv("RISK_HIGH_THRESHOLD", "60"))
+    risk_critical_threshold: int = int(os.getenv("RISK_CRITICAL_THRESHOLD", "80"))
     critical_groups: tuple[str, ...] = tuple(
         group.strip() for group in os.getenv(
             "CRITICAL_GROUPS",
             "Domain Admins,Enterprise Admins,Schema Admins,Administrators,Account Operators,Server Operators,Backup Operators,DNSAdmins",
         ).split(",") if group.strip()
     )
+
+    @property
+    def risk_thresholds(self) -> tuple[int, int, int]:
+        values = (self.risk_medium_threshold, self.risk_high_threshold, self.risk_critical_threshold)
+        if not 10 <= values[0] < values[1] < values[2] <= 100:
+            raise ValueError("Risk thresholds must be ordered between 10 and 100")
+        return values
 
 
 settings = Settings()

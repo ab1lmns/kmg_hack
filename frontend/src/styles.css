@@ -181,3 +181,15 @@ body{padding:12px}
 .orbit-two{animation:orbit-counter-sway 2.8s ease-in-out infinite}
 @keyframes orbit-sway{0%,100%{transform:rotate(-21deg)}50%{transform:rotate(-30deg)}}
 @keyframes orbit-counter-sway{0%,100%{transform:rotate(24deg)}50%{transform:rotate(12deg)}}
+
+/* Additional analysis controls use the existing panel and field visual language. */
+.toolbar{flex-wrap:wrap;gap:10px}
+.toolbar .search-field{flex:1 1 260px}
+.toolbar .select-wrap{flex:0 1 auto}
+.evidence{margin:12px 0;padding:10px 12px;border-radius:9px;background:#f2f7f4;color:#4c675e}
+.evidence>span{display:block;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;margin-bottom:8px}
+.evidence dl{display:grid;gap:6px;margin:0}
+.evidence dl div{display:grid;grid-template-columns:minmax(110px,35%) 1fr;gap:8px;min-width:0}
+.evidence dt{font-size:10px;color:#718784;overflow-wrap:anywhere}
+.evidence dd{margin:0;font-size:11px;overflow-wrap:anywhere;line-height:1.45}
+@media(max-width:760px){.toolbar .select-wrap{flex:1 1 140px}.toolbar .select-wrap select{min-width:0;width:100%}}

@@ -1,6 +1,8 @@
 import csv
 import io
+import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -24,21 +26,16 @@ storage = Storage(settings.db_path)
 
 
 class ScanRequest(BaseModel):
-    source: Literal["demo", "ldap"] = "demo"
-    ldap_password: str | None = Field(default=None, repr=False)
+    source: Literal["demo", "ldap"] = "ldap" if settings.ldap_host else "demo"
     inactive_days: int = Field(default=settings.inactive_days, ge=1, le=3650)
     old_password_days: int = Field(default=settings.old_password_days, ge=1, le=3650)
 
 
-class ConnectionTestRequest(BaseModel):
-    ldap_password: str | None = Field(default=None, repr=False)
-
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    if storage.latest() is None:
+    if storage.latest() is None and not settings.ldap_host:
         storage.save(analyze(collect_demo(), settings.inactive_days, settings.old_password_days,
-                             {group.lower() for group in settings.critical_groups}))
+                             {group.lower() for group in settings.critical_groups}, settings.risk_thresholds))
     yield
 
 
@@ -69,9 +66,9 @@ def connection_status():
 
 
 @app.post("/api/connection/test")
-def test_connection(request: ConnectionTestRequest):
+def test_connection():
     try:
-        snapshot = collect_ldap(settings, request.ldap_password)
+        snapshot = collect_ldap(settings)
         logger.info("LDAP connection test succeeded: %s users, %s groups", len(snapshot.accounts), len(snapshot.groups))
         return {"success": True, "users_found": len(snapshot.accounts),
                 "groups_found": len(snapshot.groups), "domain_policy": snapshot.domain_policy}
@@ -82,19 +79,22 @@ def test_connection(request: ConnectionTestRequest):
 
 @app.post("/api/scans")
 def create_scan(request: ScanRequest):
+    started = time.perf_counter()
     try:
-        snapshot = collect_demo() if request.source == "demo" else collect_ldap(settings, request.ldap_password)
+        snapshot = collect_demo() if request.source == "demo" else collect_ldap(settings)
     except CollectorError as exc:
         logger.warning("Scan collection failed: %s", exc)
         raise HTTPException(503, str(exc)) from exc
     result = analyze(snapshot, request.inactive_days, request.old_password_days,
-                     {group.lower() for group in settings.critical_groups})
+                     {group.lower() for group in settings.critical_groups}, settings.risk_thresholds)
+    result["duration_ms"] = round((time.perf_counter() - started) * 1000)
     scan_id = storage.save(result)
     logger.info("Scan %s completed: %s users, %s findings", scan_id,
                 result["summary"]["total_users"], result["summary"]["finding_count"])
     return {"scan_id": scan_id, "status": "completed", "source": request.source,
             "users_scanned": result["summary"]["total_users"],
-            "findings_found": result["summary"]["finding_count"]}
+            "findings_found": result["summary"]["finding_count"],
+            "duration_ms": result["duration_ms"]}
 
 
 @app.post("/api/scans/demo")
@@ -119,7 +119,8 @@ def scan(scan_id: str):
 def dashboard():
     result = latest_or_404()
     return {"scan_id": result["scan_id"], "source": result["source"],
-            "scanned_at": result["scanned_at"], "thresholds": result["thresholds"],
+            "scanned_at": result["scanned_at"], "duration_ms": result.get("duration_ms"),
+            "thresholds": result["thresholds"],
             "domain_policy": result["domain_policy"],
             "domain_policy_risk_score": result.get("domain_policy_risk_score", 0),
             "domain_policy_findings": result.get("domain_policy_findings", []), **result["summary"]}
@@ -145,6 +146,11 @@ def accounts():
             for item in latest_or_404()["accounts"]]
 
 
+@app.get("/api/groups")
+def groups():
+    return latest_or_404().get("groups", [])
+
+
 @app.get("/api/accounts/{account_id:path}")
 @app.get("/api/users/{account_id:path}")
 def account(account_id: str):
@@ -163,13 +169,14 @@ def export_csv():
         text = str(value)
         return "'" + text if text.lstrip().startswith(("=", "+", "-", "@")) else text
     writer.writerow(["Scan Date", "Source", "Account", "Account Type", "Severity",
-                     "Risk Score", "Rule", "Reason", "Recommendation"])
+                     "Risk Score", "Rule", "Reason", "Evidence", "Recommendation"])
     scores = {item["id"]: item["risk_score"] for item in result["accounts"]}
     scores["__domain__"] = result.get("domain_policy_risk_score", 0)
     for item in result["findings"]:
         writer.writerow([safe_cell(value) for value in [result["scanned_at"], result["source"], item["username"],
             item["account_type"], item["severity"], scores.get(item["account_id"], 0),
-            item["title"], item["reason"], item["recommendation"]]])
+            item["title"], item["reason"], json.dumps(item.get("evidence", {}), ensure_ascii=False),
+            item["recommendation"]]])
     data = "\ufeff" + output.getvalue()
     logger.info("CSV exported for scan %s", result["scan_id"])
     return StreamingResponse(iter([data]), media_type="text/csv; charset=utf-8",
@@ -180,6 +187,7 @@ def export_csv():
 frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 if (frontend_dist / "index.html").exists():
     app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
+    app.mount("/icons", StaticFiles(directory=frontend_dist / "icons"), name="icons")
 
     @app.get("/", include_in_schema=False)
     def frontend_index():

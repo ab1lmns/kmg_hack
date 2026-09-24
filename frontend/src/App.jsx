@@ -42,7 +42,7 @@ function Dashboard({ dashboard, accounts, scans, onOpenAccount }) {
       <Metric label="Medium" value={dashboard.findings.medium} tone="neutral" helper="Плановые проверки" />
       <Metric label="Low" value={dashboard.findings.low} tone="neutral" helper="Замечания" />
     </div>
-    <div className="quick-stats"><span><strong>{dashboard.total_users}</strong> аккаунтов проверено</span><span><strong>{dashboard.inactive_accounts ?? '—'}</strong> неактивных</span><span><strong>{dashboard.service_accounts}</strong> сервисных</span><span><strong>{dashboard.privileged_accounts}</strong> привилегированных</span><span><strong>{dashboard.finding_count}</strong> находок</span></div>
+    <div className="quick-stats"><span><strong>{dashboard.total_users}</strong> аккаунтов проверено</span><span><strong>{dashboard.healthy_accounts ?? '—'}</strong> без находок</span><span><strong>{dashboard.inactive_accounts ?? '—'}</strong> неактивных</span><span><strong>{dashboard.service_accounts}</strong> сервисных</span><span><strong>{dashboard.privileged_accounts}</strong> привилегированных</span><span><strong>{dashboard.disabled_accounts ?? '—'}</strong> отключённых</span><span><strong>{dashboard.finding_count}</strong> находок</span></div>
     <div className="dashboard-panels">
       <section className="panel distribution-panel"><div className="panel-head"><div><h2>Распределение рисков</h2><p>Находки по уровню критичности</p></div><span className="count-pill">{dashboard.finding_count} находок</span></div><div className="distribution-chart">{['critical', 'high', 'medium', 'low'].map(level => <div className={`distribution-column distribution-${level}`} key={level}><div className="distribution-track"><div className="distribution-bar" style={{height: `${(dashboard.findings[level] / Math.max(...['critical', 'high', 'medium', 'low'].map(key => dashboard.findings[key]), 1)) * 85}%`}}><strong>{dashboard.findings[level]}</strong></div></div><span>{severityLabels[level]}</span></div>)}</div><div className="chart-caption"> Данные последнего завершённого сканирования</div></section>
       <section className="panel"><div className="panel-head"><div><h2>Наиболее рискованные аккаунты</h2><p>Откройте карточку, чтобы увидеть причины и рекомендации.</p></div></div>
@@ -59,7 +59,7 @@ function Dashboard({ dashboard, accounts, scans, onOpenAccount }) {
 }
 
 const friendlyNames = {
-  INACTIVE_ACCOUNT: 'Неактивные аккаунты', PASSWORD_NEVER_EXPIRES: 'Бессрочные пароли',
+  DISABLED_ACCOUNT: 'Отключённые аккаунты', INACTIVE_ACCOUNT: 'Неактивные аккаунты', PASSWORD_NEVER_EXPIRES: 'Бессрочные пароли', SERVICE_PASSWORD_NEVER_EXPIRES: 'Бессрочные сервисные пароли',
   OLD_PASSWORD: 'Старые пароли', PASSWORD_NOT_REQUIRED: 'Ослабленные требования',
   LOCKED_ACCOUNT: 'Блокировки', EXPIRED_ACCOUNT: 'Истёкшие аккаунты',
   DIRECT_PRIVILEGE: 'Прямые привилегии', NESTED_PRIVILEGE: 'Вложенные привилегии',
@@ -70,15 +70,32 @@ const friendlyNames = {
 }
 function friendlyRule(rule) { return friendlyNames[rule] ?? rule }
 
-function Findings({ findings, onOpenAccount }) {
+const categoryLabels = { identity: 'Учётные записи', password: 'Пароли', privilege: 'Привилегии', service: 'Сервисы', domain_policy: 'Политика домена' }
+function Evidence({ evidence }) {
+  const entries = Object.entries(evidence ?? {})
+  if (!entries.length) return null
+  return <div className="evidence"><span>Подтверждение</span><dl>{entries.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value == null ? 'Нет данных' : typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}</dl></div>
+}
+
+function Findings({ findings, accounts, onOpenAccount }) {
   const [severity, setSeverity] = useState('all')
+  const [category, setCategory] = useState('all')
+  const [accountType, setAccountType] = useState('all')
+  const [privileged, setPrivileged] = useState('all')
+  const [status, setStatus] = useState('all')
   const [search, setSearch] = useState('')
-  const filtered = useMemo(() => findings.filter(item =>
-    (severity === 'all' || item.severity === severity) &&
-    `${item.username} ${item.title} ${item.reason}`.toLowerCase().includes(search.toLowerCase()),
-  ), [findings, severity, search])
+  const byId = useMemo(() => new Map(accounts.map(item => [item.id, item])), [accounts])
+  const filtered = useMemo(() => findings.filter(item => {
+    const account = byId.get(item.account_id)
+    return (severity === 'all' || item.severity === severity) &&
+      (category === 'all' || item.category === category) &&
+      (accountType === 'all' || item.account_type === accountType) &&
+      (privileged === 'all' || (account && account.privileged === (privileged === 'yes'))) &&
+      (status === 'all' || (account && account.enabled === (status === 'enabled'))) &&
+      `${item.username} ${item.title} ${item.reason}`.toLowerCase().includes(search.toLowerCase())
+  }), [findings, byId, severity, category, accountType, privileged, status, search])
   return <><div className="section-head"><div><div className="eyebrow">Анализ</div><h1>Найденные риски</h1><p>Каждая строка содержит причину, подтверждение и рекомендуемое действие.</p></div><span className="count-pill">{filtered.length} из {findings.length}</span></div>
-    <section className="panel table-panel"><div className="toolbar"><label className="search-field"><Icon name="search" size={18}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по аккаунту или риску"/></label><label className="select-wrap"><span>Уровень</span><select value={severity} onChange={e => setSeverity(e.target.value)}><option value="all">Все</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select><Icon name="chevron" size={16}/></label></div>
+    <section className="panel table-panel"><div className="toolbar"><label className="search-field"><Icon name="search" size={18}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по аккаунту или риску"/></label><label className="select-wrap"><span>Уровень</span><select value={severity} onChange={e => setSeverity(e.target.value)}><option value="all">Все</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label><label className="select-wrap"><span>Категория</span><select value={category} onChange={e => setCategory(e.target.value)}><option value="all">Все</option>{Object.entries(categoryLabels).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label><label className="select-wrap"><span>Тип</span><select value={accountType} onChange={e => setAccountType(e.target.value)}><option value="all">Все</option><option value="user">Пользователь</option><option value="service">Сервис</option><option value="domain">Домен</option></select></label><label className="select-wrap"><span>Права</span><select value={privileged} onChange={e => setPrivileged(e.target.value)}><option value="all">Все</option><option value="yes">Есть</option><option value="no">Нет</option></select></label><label className="select-wrap"><span>Статус</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="all">Все</option><option value="enabled">Включён</option><option value="disabled">Отключён</option></select></label></div>
       {filtered.length ? <div className="table-scroll"><table><thead><tr><th>Уровень</th><th>Аккаунт</th><th>Проблема</th><th>Причина</th><th>Балл</th><th></th></tr></thead><tbody>{filtered.map(item => <tr key={item.id} onClick={() => onOpenAccount(item.account_id)} tabIndex="0" onKeyDown={e => { if (e.key === 'Enter') onOpenAccount(item.account_id) }}><td><Badge level={item.severity}/></td><td className="mono">{item.username}</td><td><strong>{item.title}</strong></td><td className="muted-cell">{item.reason}</td><td className="mono">+{item.score}</td><td><Icon name="arrow" size={16}/></td></tr>)}</tbody></table></div> : <Empty title="Ничего не найдено" body="Измените фильтр или поисковый запрос."/>}
     </section></>
 }
@@ -94,7 +111,7 @@ function AccountDetails({ account, onBack }) {
   return <><button className="back-button" onClick={onBack}>← К списку аккаунтов</button><div className="section-head"><div><div className="eyebrow">Карточка аккаунта</div><h1>{account.username}</h1><p>{account.display_name} · {account.department || 'Отдел не указан'}</p></div><div className="detail-score"><span>Risk Score</span><strong>{account.risk_score}<small>/100</small></strong><Badge level={account.risk_level}/></div></div>
     <div className="details-grid"><section className="panel detail-panel"><h2>Сведения</h2><dl className="facts"><div><dt>Тип</dt><dd>{account.service_account ? 'Сервисный аккаунт' : 'Пользователь'}</dd></div><div><dt>Состояние</dt><dd>{account.enabled ? 'Включён' : 'Отключён'}</dd></div><div><dt>Последний вход</dt><dd>{formatDate(account.last_logon)}</dd></div><div><dt>Пароль установлен</dt><dd>{formatDate(account.password_last_set)}</dd></div><div><dt>Владелец</dt><dd>{account.owner || 'Не указан'}</dd></div><div><dt>Привилегии</dt><dd>{account.privileged ? 'Есть' : 'Не найдены'}</dd></div></dl></section>
       <section className="panel detail-panel"><h2>Группы и пути доступа</h2><div className="tags">{account.groups.length ? account.groups.map(group => <span key={group}>{group}</span>) : <p className="muted">Группы не указаны</p>}</div>{account.privilege_paths.length > 0 && <><h3>Путь до административной группы</h3><div className="path-list">{account.privilege_paths.map((path, index) => <div className="privilege-path" key={index}>{path.map((part, i) => <span key={i}>{i > 0 && <b>→</b>}{part}</span>)}</div>)}</div></>}</section></div>
-    <section className="panel finding-detail-panel"><div className="panel-head"><div><h2>Причины риска и рекомендации</h2><p>{account.findings.length} найденных проблем</p></div></div>{account.findings.length ? <div className="finding-cards">{account.findings.map(item => <article className="finding-card" key={item.id}><div className="finding-card-top"><Badge level={item.severity}/><strong>+{item.score} баллов</strong></div><h3>{item.title}</h3><p>{item.reason}</p><div className="recommendation"><span>Что сделать</span><p>{item.recommendation}</p></div></article>)}</div> : <Empty title="Проблемы не обнаружены" body="Для этого аккаунта правила анализа не сработали."/>}</section>
+    <section className="panel finding-detail-panel"><div className="panel-head"><div><h2>Причины риска и рекомендации</h2><p>{account.findings.length} найденных проблем</p></div></div>{account.findings.length ? <div className="finding-cards">{account.findings.map(item => <article className="finding-card" key={item.id}><div className="finding-card-top"><Badge level={item.severity}/><strong>+{item.score} баллов</strong></div><h3>{item.title}</h3><p>{item.reason}</p><Evidence evidence={item.evidence}/><div className="recommendation"><span>Что сделать</span><p>{item.recommendation}</p></div></article>)}</div> : <Empty title="Проблемы не обнаружены" body="Для этого аккаунта правила анализа не сработали."/>}</section>
   </>
 }
 
@@ -104,11 +121,11 @@ function DomainPolicy({ dashboard }) {
   return <><div className="section-head"><div><div className="eyebrow">Домен</div><h1>Парольная политика</h1><p>Базовые параметры домена и причины найденных рисков.</p></div><div className="detail-score"><span>Risk Score</span><strong>{dashboard.domain_policy_risk_score ?? 0}<small>/100</small></strong></div></div><div className="details-grid"><section className="panel detail-panel"><h2>Параметры</h2><dl className="facts"><div><dt>Минимальная длина</dt><dd>{policy.min_password_length ?? 'Нет данных'}</dd></div><div><dt>Сложность пароля</dt><dd>{policy.password_complexity == null ? 'Нет данных' : policy.password_complexity ? 'Включена' : 'Отключена'}</dd></div><div><dt>Порог блокировки</dt><dd>{policy.lockout_threshold ?? 'Нет данных'}</dd></div></dl></section><section className="panel detail-panel"><h2>Оценка</h2><p>Правила выявляют минимальную длину менее 12 символов, отключённую сложность и отсутствие порога блокировки. Настройки Fine-Grained Password Policies пока не анализируются.</p></section></div><section className="panel finding-detail-panel"><div className="panel-head"><div><h2>Найденные проблемы</h2><p>{findings.length} срабатываний</p></div></div>{findings.length ? <div className="finding-cards">{findings.map(item => <article className="finding-card" key={item.id}><div className="finding-card-top"><Badge level={item.severity}/><strong>+{item.score} баллов</strong></div><h3>{item.title}</h3><p>{item.reason}</p><div className="recommendation"><span>Что сделать</span><p>{item.recommendation}</p></div></article>)}</div> : <Empty title="Рисков политики не найдено" body="Все доступные базовые проверки пройдены или данные политики отсутствуют."/>}</section></>
 }
 
-function Settings({ connection, onTest, testing, thresholds, onThresholdChange, ldapPassword, onPasswordChange }) {
-  return <><div className="section-head"><div><div className="eyebrow">Подключение</div><h1>Источник Active Directory</h1><p>Адрес и логин backend читает из <code>backend/.env</code>. Пароль вводится здесь и хранится только до закрытия вкладки.</p></div></div>
-    <section className="panel settings-panel"><div className="settings-title"><div className="server-icon"><Icon name="server" size={26}/></div><div><h2>LDAP-подключение</h2><p>{connection.configured ? 'Параметры заполнены' : 'Ожидает настройки сервера'}</p></div><span className={`status-pill ${connection.configured ? 'ready' : ''}`}>{connection.configured ? 'Настроено' : 'Не настроено'}</span></div><dl className="facts"><div><dt>Сервер</dt><dd>{connection.host || '—'}</dd></div><div><dt>Порт</dt><dd>{connection.port}</dd></div><div><dt>Base DN</dt><dd>{connection.base_dn || '—'}</dd></div><div><dt>Соединение</dt><dd>{connection.use_ssl ? 'LDAPS' : 'LDAP'}</dd></div></dl><label className="password-field">Пароль учётной записи сканера<input type="password" autoComplete="off" value={ldapPassword} onChange={e => onPasswordChange(e.target.value)} placeholder="Введите перед проверкой или сканированием"/></label><p className="credential-note">Пароль передаётся backend при запросе и не сохраняется в базе или файле. Для удалённого доступа к приложению нужен HTTPS.</p><button className="primary-button" onClick={onTest} disabled={!connection.configured || testing || (connection.password_required && !ldapPassword)}>{testing ? 'Проверяем…' : 'Проверить соединение'}</button></section>
+function Settings({ connection, onTest, testing, thresholds, onThresholdChange }) {
+  return <><div className="section-head"><div><div className="eyebrow">Подключение</div><h1>Источник Active Directory</h1><p>Адрес и учётную запись backend читает из <code>backend/.env</code>. Секрет остаётся только на серверной стороне.</p></div></div>
+    <section className="panel settings-panel"><div className="settings-title"><div className="server-icon"><Icon name="server" size={26}/></div><div><h2>LDAP-подключение</h2><p>{connection.configured && !connection.password_required ? 'Параметры заполнены' : 'Ожидает настройки сервера'}</p></div><span className={`status-pill ${connection.configured && !connection.password_required ? 'ready' : ''}`}>{connection.configured && !connection.password_required ? 'Настроено' : 'Не настроено'}</span></div><dl className="facts"><div><dt>Сервер</dt><dd>{connection.host || '—'}</dd></div><div><dt>Порт</dt><dd>{connection.port}</dd></div><div><dt>Base DN</dt><dd>{connection.base_dn || '—'}</dd></div><div><dt>Соединение</dt><dd>{connection.use_ssl ? 'LDAPS' : 'LDAP через Tailscale'}</dd></div></dl><p className="credential-note">Пароль LDAP-чтения задаётся только через секрет окружения backend и не передаётся браузеру.</p><button className="primary-button" onClick={onTest} disabled={!connection.configured || connection.password_required || testing}>{testing ? 'Проверяем…' : 'Проверить соединение'}</button></section>
     <section className="panel settings-panel"><h2>Пороги анализа</h2><p>Эти значения применятся при следующем сканировании.</p><div className="threshold-grid"><label>Неактивность, дней<input type="number" min="1" max="3650" value={thresholds.inactive_days} onChange={e => onThresholdChange({ ...thresholds, inactive_days: Number(e.target.value) })}/></label><label>Возраст пароля, дней<input type="number" min="1" max="3650" value={thresholds.old_password_days} onChange={e => onThresholdChange({ ...thresholds, old_password_days: Number(e.target.value) })}/></label></div></section>
-    <section className="panel settings-panel"><h2>Как подключить сервер</h2><ol className="setup-list"><li>Скопируйте <code>backend/.env.example</code> в <code>backend/.env</code>.</li><li>Укажите адрес контроллера, Base DN и логин обычной учётной записи с правом чтения.</li><li>Перезапустите backend, введите пароль выше и проверьте соединение.</li><li>Выберите Active Directory и запустите анализ.</li></ol></section>
+    <section className="panel settings-panel"><h2>Как подключить сервер</h2><ol className="setup-list"><li>Скопируйте <code>backend/.env.example</code> в <code>backend/.env</code>.</li><li>Укажите адрес контроллера, Base DN и учётную запись чтения.</li><li>Задайте <code>LDAP_PASSWORD</code> в закрытом окружении backend и перезапустите его.</li><li>Проверьте соединение и запустите анализ Active Directory.</li></ol></section>
   </>
 }
 
@@ -152,9 +169,8 @@ export default function App() {
   const [accounts, setAccounts] = useState([])
   const [scans, setScans] = useState([])
   const [connection, setConnection] = useState(null)
-  const [ldapPassword, setLdapPassword] = useState('')
   const [thresholds, setThresholds] = useState({ inactive_days: 90, old_password_days: 180 })
-  const [source, setSource] = useState('demo')
+  const [source, setSource] = useState('ldap')
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -166,6 +182,7 @@ export default function App() {
       api('/dashboard'), api('/findings'), api('/accounts'), api('/connection/status'), api('/scans'),
     ])
     setDashboard(summary); setFindings(risks); setAccounts(users); setConnection(ldap); setScans(history)
+    setSource(current => current === 'demo' && summary.source === 'demo' ? 'demo' : summary.source === 'ldap' || ldap.configured ? 'ldap' : 'demo')
     setThresholds(summary.thresholds ?? { inactive_days: 90, old_password_days: 180 })
   }, [])
 
@@ -175,7 +192,7 @@ export default function App() {
   async function runScan() {
     setScanning(true); setError(null)
     try {
-      const result = await api('/scans', { method: 'POST', body: JSON.stringify({ source, ...thresholds, ...(source === 'ldap' ? { ldap_password: ldapPassword } : {}) }) })
+      const result = await api('/scans', { method: 'POST', body: JSON.stringify({ source, ...thresholds }) })
       await refresh()
       setPage('dashboard')
       setNotice(`Сканирование завершено: ${result.users_scanned} аккаунтов, ${result.findings_found} находок`)
@@ -184,7 +201,7 @@ export default function App() {
 
   async function testConnection() {
     setTesting(true); setError(null)
-    try { const result = await api('/connection/test', { method: 'POST', body: JSON.stringify({ ldap_password: ldapPassword }) }); setNotice(`Соединение установлено: ${result.users_found} пользователей, ${result.groups_found} групп`) }
+    try { const result = await api('/connection/test', { method: 'POST' }); setNotice(`Соединение установлено: ${result.users_found} пользователей, ${result.groups_found} групп`) }
     catch (e) { setError(e.message) } finally { setTesting(false) }
   }
 
@@ -194,18 +211,18 @@ export default function App() {
   const nav = [{ key: 'dashboard', label: 'Обзор', icon: 'dashboard' }, { key: 'findings', label: 'Риски', icon: 'shield' }, { key: 'accounts', label: 'Аккаунты', icon: 'users' }, { key: 'policy', label: 'Политика домена', icon: 'shield' }, { key: 'settings', label: 'Подключение', icon: 'settings' }]
 
   return <div className="app-shell"><aside className="sidebar"><div className="brand"><div><strong>Identity Risk</strong><span>Security workspace</span></div></div><div className="nav-label">Рабочая область</div><nav aria-label="Основная навигация">{nav.map(item => <button key={item.key} onClick={() => setPage(item.key)} aria-current={targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'page' : undefined} className={`nav-link ${targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'active' : ''}`}><Icon name={item.icon} size={19}/><span>{item.label}</span></button>)}</nav><div className="sidebar-footer"><div className="sidebar-visual"><Icon name="shield" size={28}/><span>Видеть риски.<br/><strong>Защищать главное.</strong></span></div><div className="sidebar-bottom"><div><strong>{dashboard ? (dashboard.source === 'ldap' ? 'Active Directory' : 'Демо-режим') : 'Нет данных'}</strong><small>{dashboard ? 'Источник сканирования' : 'Ожидание сканирования'}</small></div><Icon name="server" size={18}/></div><div className="workspace-version">IDENTITY RISK RADAR <span>v0.1</span></div></div></aside>
-    <main className="main"><header className="topbar"><div className="breadcrumb">Рабочая область <span>/</span> <strong>{page === 'detail' ? 'Карточка аккаунта' : nav.find(item => item.key === page)?.label}</strong></div><div className="top-actions"><label className="source-select"><span>Источник</span><select value={source} onChange={e => setSource(e.target.value)}><option value="demo">Демо</option><option value="ldap" disabled={!connection?.configured}>Active Directory</option></select><Icon name="chevron" size={15}/></label><button className="scan-button" disabled={scanning} onClick={runScan}><Icon name="refresh" size={17}/>{scanning ? 'Сканирование…' : 'Запустить анализ'}</button></div></header>
+    <main className="main"><header className="topbar"><div className="breadcrumb">Рабочая область <span>/</span> <strong>{page === 'detail' ? 'Карточка аккаунта' : nav.find(item => item.key === page)?.label}</strong></div><div className="top-actions"><label className="source-select"><span>Источник</span><select value={source} onChange={e => setSource(e.target.value)}><option value="demo">Демо</option><option value="ldap" disabled={!connection?.configured}>Active Directory</option></select><Icon name="chevron" size={15}/></label><button className="scan-button" disabled={scanning || (source === 'ldap' && connection?.password_required)} onClick={runScan}><Icon name="refresh" size={17}/>{scanning ? 'Сканирование…' : 'Запустить анализ'}</button></div></header>
       <div className="content" style={{ '--page-direction': direction }}>{error && <div className="alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Закрыть">×</button></div>}{notice && <div className="notice" role="status">{notice}</div>}{loading ? <div className="loading">Загрузка результатов…</div> : dashboard ? <>
-        <div className="scan-meta"><span>{sourceLabels[dashboard.source]} · Сканирование {formatDate(dashboard.scanned_at)}</span><a href="/api/export/csv" className="export-link"><Icon name="download" size={17}/> Скачать CSV</a></div>
+        <div className="scan-meta"><span>{sourceLabels[dashboard.source]} · Сканирование {formatDate(dashboard.scanned_at)}{dashboard.duration_ms != null ? ` · ${dashboard.duration_ms} мс` : ''}</span><a href="/api/export/csv" className="export-link"><Icon name="download" size={17}/> Скачать CSV</a></div>
         <div className="page-stage" data-page={targetPage}>
         <div className="scene-lane" aria-hidden="true"><div className="scene-traveler" style={{ '--scene-step': pageIndex(targetPage) }}><ShieldScene/></div></div>
         <div key={page} className={`page-content page-${transition}`} inert={transition === 'exit' ? true : undefined}>
         {page === 'dashboard' && <Dashboard dashboard={dashboard} accounts={accounts} scans={scans} onOpenAccount={openAccount}/>}
-        {page === 'findings' && <Findings findings={findings} onOpenAccount={openAccount}/>}
+        {page === 'findings' && <Findings findings={findings} accounts={accounts} onOpenAccount={openAccount}/>}
         {page === 'accounts' && <Accounts accounts={accounts} onOpenAccount={openAccount}/>}
         {page === 'detail' && detail && <AccountDetails account={detail} onBack={() => setPage('accounts')}/>}
         {page === 'policy' && <DomainPolicy dashboard={dashboard}/>}
-        {page === 'settings' && <Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} ldapPassword={ldapPassword} onPasswordChange={setLdapPassword}/>}
+        {page === 'settings' && <Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds}/>}
         </div></div>
       </> : <Empty title="Нет результатов" body="Запустите демонстрационное сканирование, чтобы увидеть анализ."/>}</div>
     </main></div>

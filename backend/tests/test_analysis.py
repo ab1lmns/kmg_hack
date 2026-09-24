@@ -1,8 +1,9 @@
 import unittest
+from datetime import datetime, timedelta, timezone
 
-from app.analysis import analyze, privilege_paths
+from app.analysis import analyze, privilege_paths, score_findings
 from app.collectors import collect_demo
-from app.models import Account, Group
+from app.models import Account, Group, Snapshot
 
 
 class AnalysisTests(unittest.TestCase):
@@ -49,6 +50,57 @@ class AnalysisTests(unittest.TestCase):
         by_name = {item["username"]: item for item in result["accounts"]}
         rules = {item["rule_id"] for item in by_name["disabled.admin"]["findings"]}
         self.assertIn("DISABLED_PRIVILEGED", rules)
+
+    def test_disabled_expired_and_password_flags_have_evidence(self):
+        account = Account(id="u", username="disabled", display_name="Disabled", enabled=False,
+                          account_expired=True, password_never_expires=True)
+        result = analyze(Snapshot(source="test", accounts=[account], groups=[]))
+        findings = result["accounts"][0]["findings"]
+        self.assertEqual({item["rule_id"] for item in findings},
+                         {"DISABLED_ACCOUNT", "EXPIRED_ACCOUNT", "PASSWORD_NEVER_EXPIRES"})
+        self.assertTrue(all(item["evidence"] and item["recommendation"] for item in findings))
+
+    def test_new_never_used_account_is_not_called_inactive(self):
+        account = Account(id="u", username="new", display_name="New",
+                          when_created=datetime.now(timezone.utc).isoformat())
+        result = analyze(Snapshot(source="test", accounts=[account], groups=[]))
+        self.assertEqual(result["accounts"][0]["risk_score"], 0)
+
+    def test_old_never_used_account_is_inactive(self):
+        account = Account(id="u", username="old", display_name="Old",
+                          when_created=(datetime.now(timezone.utc) - timedelta(days=120)).isoformat())
+        result = analyze(Snapshot(source="test", accounts=[account], groups=[]), inactive_days=90)
+        self.assertIn("INACTIVE_ACCOUNT", {item["rule_id"] for item in result["accounts"][0]["findings"]})
+
+    def test_old_password_uses_configured_threshold(self):
+        account = Account(id="u", username="old-password", display_name="Old password",
+                          password_last_set=(datetime.now(timezone.utc) - timedelta(days=100)).isoformat())
+        snapshot = Snapshot(source="test", accounts=[account], groups=[])
+        self.assertNotIn("OLD_PASSWORD", {item["rule_id"] for item in
+                         analyze(snapshot, old_password_days=180)["accounts"][0]["findings"]})
+        self.assertIn("OLD_PASSWORD", {item["rule_id"] for item in
+                      analyze(snapshot, old_password_days=90)["accounts"][0]["findings"]})
+
+    def test_service_nested_privilege_and_combined_risk(self):
+        account = Account(id="svc", username="ir-svc-backup", display_name="Backup",
+                          service_account=True, service_reason="SPN", password_never_expires=True,
+                          groups=["Service Ops"])
+        groups = [Group(id="ops", name="Service Ops", member_of=["IR-Lab-Admins"]),
+                  Group(id="admins", name="IR-Lab-Admins")]
+        result = analyze(Snapshot(source="test", accounts=[account], groups=groups),
+                         critical_groups={"ir-lab-admins"})
+        row = result["accounts"][0]
+        self.assertIn(["ir-svc-backup", "Service Ops", "IR-Lab-Admins"], row["privilege_paths"])
+        self.assertEqual(row["risk_level"], "critical")
+        self.assertIn("SERVICE_PRIVILEGED", {item["rule_id"] for item in row["findings"]})
+        self.assertIn("SERVICE_PASSWORD_NEVER_EXPIRES", {item["rule_id"] for item in row["findings"]})
+
+    def test_score_bands_and_boundary(self):
+        self.assertEqual(score_findings([]), 0)
+        self.assertLess(score_findings([{"severity": "medium", "score": 10}] * 20), 60)
+        self.assertLess(score_findings([{"severity": "high", "score": 25}] * 20), 80)
+        self.assertLessEqual(score_findings([{"severity": "critical", "score": 40}] * 20), 100)
+        self.assertEqual(score_findings([{"severity": "high", "score": 25}], (25, 50, 75)), 50)
 
 
 if __name__ == "__main__":
