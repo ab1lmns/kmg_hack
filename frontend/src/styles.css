@@ -780,25 +780,37 @@ td{font-size:13px;color:var(--ui-ink)}
   .page-enter .severity-grid > .metric,.page-enter .metric-track span{animation:none!important}
 }
 
-/* Scan progress and saved runs. Progress is intentionally indeterminate: the API reports completion only. */
-.scan-progress{position:relative;display:grid;grid-template-columns:72px minmax(0,1fr) 88px;align-items:center;gap:20px;overflow:hidden;margin:0 0 18px;padding:22px 25px;border:1px solid #35695b;border-radius:16px;color:#f3fcf7;background:linear-gradient(115deg,#173b34,#254f43);box-shadow:0 12px 30px #1a423021}
-.scan-progress:before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:#8fe1ad}
-.scan-progress-symbol{width:62px;height:62px;border:1px solid #ffffff3d;border-radius:18px;position:relative;display:grid;place-items:center;background:#ffffff0d}
-.scan-progress-symbol:before,.scan-progress-symbol:after{content:'';position:absolute;border:2px solid #a9ecc3;border-radius:50%}
-.scan-progress-symbol:before{width:31px;height:31px;border-right-color:transparent;animation:scan-orbit 2.2s linear infinite}
-.scan-progress-symbol:after{width:12px;height:12px;background:#a9ecc3;box-shadow:0 0 0 5px #a9ecc320}
-.scan-progress-copy{min-width:0}
-.scan-progress-eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:7px;color:#b4e6c8;font-size:12px;font-weight:700}
-.scan-progress-eyebrow i{display:block;width:7px;height:7px;flex:none;border-radius:50%;background:#9ce8b6;box-shadow:0 0 0 4px #9ce8b623}
-.scan-progress h2{margin:0 0 4px;color:#fff;font-size:20px;letter-spacing:-.4px}
-.scan-progress p{margin:0 0 16px;color:#c3ddd0;font-size:13px}
-.scan-progress-track{height:4px;overflow:hidden;border-radius:99px;background:#ffffff2a}
-.scan-progress-track span{display:block;width:32%;height:100%;border-radius:inherit;background:linear-gradient(90deg,#91e2ad,#e0f7cb);animation:scan-travel 2.4s ease-in-out infinite alternate}
-.scan-progress-time{display:grid;justify-items:end;gap:3px;font-variant-numeric:tabular-nums}
-.scan-progress-time strong{font-size:25px;line-height:1;color:#fff;letter-spacing:-1px}
-.scan-progress-time span{font-size:11px;color:#b4d1c1}
-@keyframes scan-orbit{to{transform:rotate(360deg)}}
-@keyframes scan-travel{from{transform:translateX(-100%)}to{transform:translateX(315%)}}
+/* Latest scan lives in the toolbar; a completed scan gives it one restrained highlight. */
+.topbar{height:auto;min-height:76px;display:flex;flex-wrap:wrap;gap:10px 18px;padding:10px 24px}
+.topbar-context{display:grid;align-content:center;gap:6px;flex:1 1 390px;min-width:0}
+.topbar .breadcrumb{line-height:1.15}
+.topbar .scan-meta{display:flex;align-items:center;gap:7px;width:max-content;max-width:100%;min-height:31px;margin:0;padding:5px 11px;border:1px solid #cce5d6;border-radius:8px;background:#f0f8f2;color:#486a58;font-size:12px;line-height:1.3;white-space:nowrap;animation:scan-stamp .65s ease-out both}
+.scan-meta-led{width:7px;height:7px;flex:none;border-radius:50%;background:#4aaf79;box-shadow:0 0 0 3px #4aaf791c}
+.topbar .scan-meta strong{color:#24553b;font-size:12px;font-weight:700}
+.scan-meta-time{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.scan-meta-duration{flex:none;margin-left:3px;padding-left:9px;border-left:1px solid #c8dfcf;color:#607b6b;font-variant-numeric:tabular-nums}
+.topbar .top-actions{margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+.topbar .export-link{margin:0;min-height:42px;padding:0 11px;border:1px solid var(--ui-line);border-radius:10px;background:#fff;color:var(--ui-accent);font-size:12px;gap:6px}
+.topbar .export-link:hover{background:#f0f8f2;border-color:#b8d8c5}
+.topbar .export-link:focus-visible{outline:2px solid #28745f;outline-offset:2px}
+@keyframes scan-stamp{from{opacity:.35;background:#d8f1df;transform:translateY(-5px)}to{opacity:1;background:#f0f8f2;transform:translateY(0)}}
+
+/* The source does not stream progress, so the line communicates activity without a percentage. */
+.scan-progress-drawer{display:grid;grid-template-rows:1fr;overflow:hidden;border-bottom:1px solid #d7e7dc;background:#f7fbf8;animation:scan-drawer-in .42s cubic-bezier(.22,1,.36,1) both}
+.scan-progress-drawer.is-leaving{animation:scan-drawer-out .32s ease-in both}
+.scan-progress{position:relative;min-height:0;display:flex;align-items:center;gap:24px;padding:15px 28px 17px;color:var(--ui-ink)}
+.scan-progress-copy{min-width:0;flex:1}
+.scan-progress-eyebrow{display:flex;align-items:center;gap:8px;color:#376f53;font-size:12px;font-weight:700}
+.scan-progress-eyebrow i{display:block;width:7px;height:7px;flex:none;border-radius:50%;background:#4aa775}
+.scan-progress h2{margin:3px 0 0;font-size:15px;font-weight:600;letter-spacing:0;color:var(--ui-ink)}
+.scan-progress-time{display:flex;align-items:baseline;gap:6px;flex:none;font-variant-numeric:tabular-nums;color:var(--ui-muted)}
+.scan-progress-time strong{font-size:18px;line-height:1.1;letter-spacing:-.3px;color:#345a47}
+.scan-progress-time span{font-size:11px}
+.scan-progress-track{position:absolute;bottom:0;left:0;right:0;height:2px;overflow:hidden;background:#e3eee7}
+.scan-progress-track span{display:block;width:28%;height:100%;background:#4b9b6a;animation:scan-travel 1.8s ease-in-out infinite alternate}
+@keyframes scan-travel{from{transform:translateX(-100%)}to{transform:translateX(360%)}}
+@keyframes scan-drawer-in{from{grid-template-rows:0fr;opacity:0;transform:translateY(-14px)}to{grid-template-rows:1fr;opacity:1;transform:translateY(0)}}
+@keyframes scan-drawer-out{from{grid-template-rows:1fr;opacity:1;transform:translateY(0)}to{grid-template-rows:0fr;opacity:0;transform:translateY(-12px)}}
 .scan-complete{display:flex;align-items:center;gap:13px;margin:0 0 16px;padding:13px 16px;border:1px solid #cbe8d7;border-radius:13px;background:#f0faf2;color:#235d40}
 .scan-complete-mark{display:grid;place-items:center;width:33px;height:33px;flex:none;border-radius:50%;background:#2f8658;color:white;font-size:18px;font-weight:700}
 .scan-complete strong{font-size:14px}.scan-complete p{margin:2px 0 0;color:#55746a;font-size:12px}
@@ -827,6 +839,7 @@ td{font-size:13px;color:var(--ui-ink)}
 .history-empty{padding:28px;color:var(--ui-muted);font-size:14px}
 .scan-history-run:focus-visible,.history-filters button:focus-visible{outline:2px solid #25875d;outline-offset:2px}
 @media(max-width:1000px){.scan-history-layout{grid-template-columns:1fr}.scan-history-runs{max-height:340px}}
-@media(max-width:640px){.scan-progress{grid-template-columns:48px minmax(0,1fr);gap:13px;padding:17px}.scan-progress-symbol{width:46px;height:46px;border-radius:13px}.scan-progress-symbol:before{width:25px;height:25px}.scan-progress-symbol:after{width:9px;height:9px}.scan-progress h2{font-size:16px}.scan-progress p{font-size:12px}.scan-progress-time{grid-column:2;justify-items:start;display:flex;align-items:baseline;gap:7px}.scan-progress-time strong{font-size:18px}.scan-progress-track{margin-top:12px}.history-detail-top{flex-wrap:wrap}.history-severity>div{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.topbar{flex-direction:column;align-items:stretch;gap:10px;padding:12px 16px}.topbar-context{flex:0 1 auto;width:100%}.topbar .top-actions{margin:0;width:100%;justify-content:flex-start}.scan-progress{padding:14px 16px 16px}}
+@media(max-width:640px){.topbar .scan-meta{width:100%;gap:6px}.scan-progress{gap:10px}.scan-progress h2{font-size:14px}.scan-progress-time strong{font-size:16px}.history-detail-top{flex-wrap:wrap}.history-severity>div{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:420px){.history-detail-metrics{gap:5px}.history-detail-metrics>div{padding:10px}.history-detail-metrics strong{font-size:19px}.history-detail-metrics span{font-size:10px}}
-@media(prefers-reduced-motion:reduce){.scan-progress-symbol:before,.scan-progress-track span{animation:none}.scan-progress-track span{width:100%;opacity:.65}.scan-history-run{transition:none}}
+@media(prefers-reduced-motion:reduce){.topbar .scan-meta,.scan-progress-drawer,.scan-progress-drawer.is-leaving,.scan-progress-track span{animation:none}.scan-progress-track span{width:100%;opacity:.65}.scan-history-run{transition:none}}

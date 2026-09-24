@@ -12,7 +12,7 @@ function scanDate(value) {
   return value ? new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Нет данных'
 }
 
-export function ScanProgress({ startedAt, source }) {
+export function ScanProgress({ startedAt, source, active }) {
   const [seconds, setSeconds] = useState(0)
   useEffect(() => {
     if (!startedAt) return
@@ -22,16 +22,16 @@ export function ScanProgress({ startedAt, source }) {
     return () => window.clearInterval(timer)
   }, [startedAt])
   const elapsed = String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0')
-  return <section className="scan-progress" role="status" aria-live="off">
-    <div className="scan-progress-symbol" aria-hidden="true"/>
-    <div className="scan-progress-copy">
-      <span className="scan-progress-eyebrow"><i aria-hidden="true"/> Анализ выполняется · {sourceLabels[source] ?? source}</span>
-      <h2>Проверяем данные и рассчитываем риски</h2>
-      <p>Результат появится после ответа источника. Можно перейти на другую вкладку.</p>
-      <div className="scan-progress-track" aria-hidden="true"><span/></div>
-    </div>
+  return <div className={`scan-progress-drawer${active ? '' : ' is-leaving'}`}>
+    <section className="scan-progress" role="status" aria-live="off">
+      <div className="scan-progress-copy">
+        <span className="scan-progress-eyebrow"><i aria-hidden="true"/> Идёт анализ · {sourceLabels[source] ?? source}</span>
+        <h2>Читаем данные и рассчитываем риски</h2>
+      </div>
       <div className="scan-progress-time" aria-label={`Прошло ${Math.floor(seconds / 60)} минут ${seconds % 60} секунд`}><strong aria-hidden="true">{elapsed}</strong><span>прошло</span></div>
-  </section>
+      <div className="scan-progress-track" aria-hidden="true"><span/></div>
+    </section>
+  </div>
 }
 
 export function ScanHistory({ scans, selectedScanId, onSelect, recentRun }) {

@@ -427,6 +427,11 @@ export default function App() {
   }, [])
   useEffect(() => { if (auth === 'local' || auth === 'signed-in') refresh().catch(e => setError(e.message)).finally(() => setLoading(false)) }, [auth, refresh])
   useEffect(() => { if (notice) { const timeout = setTimeout(() => setNotice(null), 5500); return () => clearTimeout(timeout) } }, [notice])
+  useEffect(() => {
+    if (scanning || !scanStartedAt) return
+    const timeout = setTimeout(() => setScanStartedAt(null), 320)
+    return () => clearTimeout(timeout)
+  }, [scanning, scanStartedAt])
 
   async function signIn(event) {
     event.preventDefault()
@@ -450,7 +455,7 @@ export default function App() {
       setSelectedScanId(result.scan_id)
       setPage('history')
       try { await refresh() } catch (e) { setError(`Анализ сохранён, но не удалось обновить результаты: ${e.message}`) }
-    } catch (e) { setError(e.message) } finally { setScanning(false); setScanStartedAt(null) }
+    } catch (e) { setError(e.message) } finally { setScanning(false) }
   }
 
   async function testConnection() {
@@ -475,10 +480,10 @@ export default function App() {
   if (auth === 'login') return <div className="login-page"><form className="panel login-panel" onSubmit={signIn}><h1>Identity Risk</h1><p>Вход для участников команды</p><label>Логин<input autoComplete="username" value={loginName} onChange={e => setLoginName(e.target.value)} required/></label><label>Пароль<input type="password" autoComplete="current-password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} required/></label>{loginError && <p className="alert" role="alert">{loginError}</p>}<button className="primary-button" disabled={loggingIn}>{loggingIn ? 'Входим…' : 'Войти'}</button></form></div>
 
   return <div className="app-shell"><aside className="sidebar"><div className="brand"><div><strong>Identity Risk</strong><span>Security workspace</span></div></div><div className="nav-label">Рабочая область</div><nav aria-label="Основная навигация">{nav.map(item => <button key={item.key} onClick={() => setPage(item.key)} aria-current={targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'page' : undefined} className={`nav-link ${targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'active' : ''}`}><Icon name={item.icon} size={19}/><span>{item.label}</span></button>)}</nav></aside>
-    <main className="main"><header className="topbar"><div className="breadcrumb">Рабочая область <span>/</span> <strong>{page === 'detail' ? 'Карточка аккаунта' : nav.find(item => item.key === page)?.label}</strong></div><div className="top-actions"><label className="source-select"><span>Источник</span><select value={source} disabled={scanning} onChange={e => setSource(e.target.value)}><option value="demo">Демо</option><option value="ldap" disabled={!connection?.configured}>Active Directory</option></select><Icon name="chevron" size={15}/></label><button className="scan-button" disabled={scanning || (source === 'ldap' && (!connection?.configured || connection.password_required))} onClick={runScan}><Icon name="refresh" size={17}/>{scanning ? 'Анализ выполняется…' : 'Запустить анализ'}</button>{auth === 'signed-in' && <button className="logout-button" onClick={signOut}>Выйти</button>}</div></header>
-      <div className="content" style={{ '--page-direction': direction }}>{scanning && <ScanProgress startedAt={scanStartedAt} source={source}/>} {error && <div className="alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Закрыть">×</button></div>}{notice && <div className="notice" role="status">{notice}</div>}{loading ? <div className="loading">Загрузка результатов…</div> : dashboard ? <>
+    <main className="main"><header className="topbar"><div className="topbar-context"><div className="breadcrumb">Рабочая область <span>/</span> <strong>{page === 'detail' ? 'Карточка аккаунта' : nav.find(item => item.key === page)?.label}</strong></div>{dashboard && <div key={dashboard.scanned_at} className="scan-meta"><span className="scan-meta-led" aria-hidden="true"/><strong>{sourceLabels[dashboard.source] ?? dashboard.source}</strong><span className="scan-meta-time">Сканирование {formatDateTime(dashboard.scanned_at)}</span>{dashboard.duration_ms != null && <span className="scan-meta-duration">{(dashboard.duration_ms / 1000).toFixed(1)} с</span>}</div>}</div><div className="top-actions"><label className="source-select"><span>Источник</span><select value={source} disabled={scanning} onChange={e => setSource(e.target.value)}><option value="demo">Демо</option><option value="ldap" disabled={!connection?.configured}>Active Directory</option></select><Icon name="chevron" size={15}/></label><button className="scan-button" disabled={scanning || (source === 'ldap' && (!connection?.configured || connection.password_required))} onClick={runScan}><Icon name="refresh" size={17}/>{scanning ? 'Анализ выполняется…' : 'Запустить анализ'}</button>{dashboard && <button onClick={() => downloadCsv().catch(e => setError(e.message))} className="export-link" aria-label="Скачать результаты CSV" title="Скачать CSV"><Icon name="download" size={17}/><span>CSV</span></button>}{auth === 'signed-in' && <button className="logout-button" onClick={signOut}>Выйти</button>}</div></header>
+      {scanStartedAt && <ScanProgress startedAt={scanStartedAt} source={source} active={scanning}/>}
+      <div className="content" style={{ '--page-direction': direction }}>{error && <div className="alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Закрыть">×</button></div>}{notice && <div className="notice" role="status">{notice}</div>}{loading ? <div className="loading">Загрузка результатов…</div> : dashboard ? <>
         {page !== 'history' && dashboard.source === 'demo' && <div className="notice" role="status">Демо-данные: этот результат не отражает состояние Active Directory. Выберите Active Directory и запустите анализ для живых данных.</div>}
-        {page !== 'history' && <div className="scan-meta"><span>{sourceLabels[dashboard.source]} · Сканирование {formatDateTime(dashboard.scanned_at)}{dashboard.duration_ms != null ? ` · ${dashboard.duration_ms} мс` : ''}</span><button onClick={() => downloadCsv().catch(e => setError(e.message))} className="export-link"><Icon name="download" size={17}/> Скачать CSV</button></div>}
         <div className="page-stage" data-page={targetPage}>
         <div key={page} className={`page-content page-${transition}`} inert={transition === 'exit' ? true : undefined}>
         {page === 'dashboard' && <Dashboard dashboard={dashboard} accounts={accounts} scans={scans} comparison={comparison} onOpenAccount={openAccount}/>}
