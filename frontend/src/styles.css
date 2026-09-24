@@ -504,3 +504,114 @@ td{font-size:13px;color:var(--ui-ink)}
   .risk-reason > div{align-items:flex-start}
   .finding-card{padding:16px}
 }
+
+/* Dashboard surfaces and motion shared by every page. */
+.dashboard-panels{align-items:start}
+.dashboard-panels > .panel{height:auto;align-self:start}
+.distribution-panel{
+  background:linear-gradient(145deg,#ffffff 0%,#f6faf7 100%);
+  border-color:#dbe9df;
+}
+.distribution-chart{
+  display:grid;
+  height:auto;
+  min-height:0;
+  gap:16px;
+  padding:8px 0 2px;
+  border:0;
+  background:none;
+}
+.distribution-row{
+  display:grid;
+  grid-template-columns:82px minmax(0,1fr) 28px;
+  align-items:center;
+  gap:14px;
+  min-width:0;
+}
+.distribution-label{font-size:13px;font-weight:600;color:var(--ui-ink)}
+.distribution-row strong{font-size:14px;font-variant-numeric:tabular-nums;text-align:right;color:var(--ui-ink)}
+.distribution-rail{height:12px;overflow:hidden;border-radius:999px;background:#eaf0ec}
+.distribution-fill{height:100%;min-width:0;border-radius:inherit;background:#81cbb2;transform-origin:left center}
+.distribution-critical .distribution-fill{background:linear-gradient(90deg,#f2a3ac,#de677d)}
+.distribution-high .distribution-fill{background:linear-gradient(90deg,#f8c390,#e59a5e)}
+.distribution-medium .distribution-fill{background:linear-gradient(90deg,#f4dfa4,#d4b45a)}
+.distribution-low .distribution-fill{background:linear-gradient(90deg,#a8dece,#69bba2)}
+.score-card{background:linear-gradient(140deg,#edf8f1,#f9fdf9);border-color:#d2e9da}
+.page-content > .panel:not(.table-panel),.details-grid > .panel{background:linear-gradient(150deg,#fff 66%,#f7faf8)}
+.page-content > .risk-explanation{background:linear-gradient(145deg,#f6fbf7,#fff 72%)}
+.metric-critical{background:#fff8f8;border-color:#f1dfe1}
+.metric-high{background:#fffbf5;border-color:#f2e7d8}
+.metric-medium{background:#fffdf6;border-color:#eee9d9}
+.metric-low{background:#f5fbf8;border-color:#dbece2}
+.quick-stats{background:#fbfdfb}
+.category-panel{background:#f9fbfa}
+.secondary-panels > .panel{background:#f9fbfc}
+.panel,.score-card,.metric,.finding-card,.risk-reason{
+  transition:border-color .24s ease,box-shadow .24s ease,transform .24s cubic-bezier(.22,1,.36,1);
+}
+.panel:hover,.score-card:hover{border-color:#c5ddce;box-shadow:0 8px 26px #214c3510}
+.finding-card:hover,.risk-reason:hover{border-color:#cbded3;box-shadow:0 6px 20px #214c350b}
+.top-row:hover{border-radius:9px}
+.page-enter{animation:workspace-enter .42s cubic-bezier(.22,1,.36,1) both}
+.page-enter > *{animation:section-enter .5s cubic-bezier(.22,1,.36,1) both}
+.page-enter > *:nth-child(2){animation-delay:45ms}
+.page-enter > *:nth-child(3){animation-delay:90ms}
+.page-enter > *:nth-child(4){animation-delay:135ms}
+.page-enter > *:nth-child(5){animation-delay:180ms}
+.page-enter > *:nth-child(n+6){animation-delay:215ms}
+.page-enter .overview-grid > *,
+.page-enter .dashboard-panels > .panel,
+.page-enter .secondary-panels > .panel,
+.page-enter .details-grid > .panel,
+.page-enter .finding-cards > .finding-card,
+.page-enter .risk-reasons > .risk-reason,
+.page-enter .category-list > .category{
+  animation:surface-enter .52s cubic-bezier(.22,1,.36,1) both;
+}
+.page-enter .overview-grid > *:nth-child(2),
+.page-enter .dashboard-panels > .panel:nth-child(2),
+.page-enter .details-grid > .panel:nth-child(2),
+.page-enter .finding-cards > .finding-card:nth-child(2),
+.page-enter .risk-reasons > .risk-reason:nth-child(2),
+.page-enter .category-list > .category:nth-child(2){animation-delay:65ms}
+.page-enter .overview-grid > *:nth-child(3),
+.page-enter .dashboard-panels > .panel:nth-child(3),
+.page-enter .finding-cards > .finding-card:nth-child(3),
+.page-enter .risk-reasons > .risk-reason:nth-child(3),
+.page-enter .category-list > .category:nth-child(3){animation-delay:120ms}
+.page-enter .overview-grid > *:nth-child(n+4),
+.page-enter .finding-cards > .finding-card:nth-child(n+4),
+.page-enter .risk-reasons > .risk-reason:nth-child(n+4),
+.page-enter .category-list > .category:nth-child(n+4){animation-delay:170ms}
+.page-enter h1,.page-enter .dashboard-intro p,.page-enter .section-head p,
+.page-enter .panel-head h2,.page-enter .panel-head p,
+.page-enter .metric-label,.page-enter .metric-value{
+  animation:text-enter .56s cubic-bezier(.22,1,.36,1) both;
+}
+.page-enter .dashboard-intro p,.page-enter .section-head p,
+.page-enter .panel-head p,.page-enter .metric-value{animation-delay:90ms}
+.page-enter .distribution-fill{animation:bar-reveal .75s cubic-bezier(.22,1,.36,1) .2s both}
+@keyframes workspace-enter{from{opacity:.85}to{opacity:1}}
+@keyframes section-enter{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes surface-enter{from{opacity:0;transform:translateY(10px) scale(.992)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes text-enter{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+@keyframes bar-reveal{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@media(max-width:540px){
+  .distribution-row{grid-template-columns:76px minmax(0,1fr) 24px;gap:9px}
+  .distribution-label{font-size:12px}
+  .distribution-rail{height:10px}
+}
+@media(prefers-reduced-motion:reduce){
+  .page-enter,.page-enter > *,
+  .page-enter .overview-grid > *,
+  .page-enter .dashboard-panels > .panel,
+  .page-enter .secondary-panels > .panel,
+  .page-enter .details-grid > .panel,
+  .page-enter .finding-cards > .finding-card,
+  .page-enter .risk-reasons > .risk-reason,
+  .page-enter .category-list > .category,
+  .page-enter h1,.page-enter .dashboard-intro p,.page-enter .section-head p,
+  .page-enter .panel-head h2,.page-enter .panel-head p,
+  .page-enter .metric-label,.page-enter .metric-value,
+  .page-enter .distribution-fill{animation:none!important}
+}

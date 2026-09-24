@@ -3,6 +3,7 @@ import { api, downloadCsv, setAccessToken } from './api.js'
 
 const severityLabels = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', safe: 'Без риска' }
 const severityPlain = { critical: 'Критично', high: 'Высокий риск', medium: 'Средний риск', low: 'Низкий риск' }
+const chartLabels = { critical: 'Критично', high: 'Высокий', medium: 'Средний', low: 'Низкий' }
 const sourceLabels = { demo: 'Демо', ldap: 'Active Directory' }
 const sourceStatusLabels = { ldap: 'Active Directory', fine_grained_policies: 'Fine-Grained Password Policies', computers: 'Компьютеры AD', spn_inventory: 'SPN', interactive_rights: 'Интерактивные права DC', security_event_log: 'Security Event Log', ad_gateway: 'AD Gateway' }
 const checkStatusLabels = { pass: 'Проверен', finding: 'Найдена проблема', partial: 'Частичные данные', error: 'Ошибка чтения', not_evaluated: 'Не оценён' }
@@ -42,6 +43,7 @@ function Dashboard({ dashboard, accounts, scans, comparison, onOpenAccount }) {
   const top = dashboard.top_risky_users ?? []
   const policyAvailable = Object.keys(dashboard.domain_policy ?? {}).length > 0
   const maxCategory = Math.max(...(dashboard.categories ?? []).map(item => item.count), 1)
+  const maxFinding = Math.max(...['critical', 'high', 'medium', 'low'].map(level => dashboard.findings[level] ?? 0), 1)
   const history = scans.filter(item => item.source === dashboard.source).slice(0, 8).reverse()
   return <>
     <div className="dashboard-intro"><div><h1>Обзор безопасности</h1><p>Риски Active Directory и аккаунты, требующие внимания.</p></div></div>
@@ -69,7 +71,13 @@ function Dashboard({ dashboard, accounts, scans, comparison, onOpenAccount }) {
       </div></details>
     </div>
     <div className="dashboard-panels">
-      <section className="panel distribution-panel"><div className="panel-head"><div><h2>Распределение рисков</h2><p>Находки по уровню критичности</p></div><span className="count-pill">{dashboard.finding_count} находок</span></div><div className="distribution-chart">{['critical', 'high', 'medium', 'low'].map(level => <div className={`distribution-column distribution-${level}`} key={level}><div className="distribution-track"><div className="distribution-bar" style={{height: `${(dashboard.findings[level] / Math.max(...['critical', 'high', 'medium', 'low'].map(key => dashboard.findings[key]), 1)) * 85}%`}}><strong>{dashboard.findings[level]}</strong></div></div><span>{severityLabels[level]}</span></div>)}</div><div className="chart-caption"> Данные последнего завершённого сканирования</div></section>
+      <section className="panel distribution-panel"><div className="panel-head"><div><h2>Распределение рисков</h2><p>Находки по уровню критичности</p></div><span className="count-pill">{dashboard.finding_count} находок</span></div>
+        <div className="distribution-chart" role="list" aria-label="Находки по уровню риска">{['critical', 'high', 'medium', 'low'].map(level => {
+          const count = dashboard.findings[level] ?? 0
+          const width = count ? `${Math.max(6, count / maxFinding * 100)}%` : '0%'
+          return <div className={`distribution-row distribution-${level}`} role="listitem" key={level}><span className="distribution-label">{chartLabels[level]}</span><div className="distribution-rail" aria-hidden="true"><div className="distribution-fill" style={{width}}/></div><strong>{count}</strong></div>
+        })}</div>
+      </section>
       <section className="panel"><div className="panel-head"><div><h2>Наиболее рискованные аккаунты</h2><p>Откройте карточку, чтобы увидеть причины и рекомендации.</p></div></div>
         {top.length ? <div className="top-list">{top.map(item => <button className="top-row" key={item.id} onClick={() => onOpenAccount(item.id)}><span className={`top-rank avatar-${item.risk_level}`}><Icon name="users" size={19}/></span><span className="top-person"><strong>{item.username}</strong><small>{item.display_name}</small></span><Badge level={item.risk_level}/><strong className="top-score">{item.risk_score}</strong><Icon name="arrow" size={17}/></button>)}</div> : <Empty title="Рисков нет" body="После сканирования здесь появятся аккаунты с наибольшим риском."/>}
       </section>
