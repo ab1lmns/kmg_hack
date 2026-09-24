@@ -31,6 +31,7 @@ class Account:
     service_account: bool = False
     service_reason: str = ""
     service_detection_reasons: list[str] = field(default_factory=list)
+    object_classes: list[str] = field(default_factory=list)
     owner: str | None = None
     owner_attribute: str = "managedBy"
     sid_history: list[str] = field(default_factory=list)

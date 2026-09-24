@@ -18,6 +18,7 @@ from .analysis import analyze
 from .collectors import CollectorError, collect_demo, collect_ldap
 from .events import WindowsEventCollector
 from .config import settings
+from .gateway_client import collect_gateway
 from .storage import Storage, StorageError
 
 
@@ -45,7 +46,7 @@ class AnalysisConfig(BaseModel):
 
 
 class ScanRequest(BaseModel):
-    source: Literal["demo", "ldap"] = "ldap" if settings.ldap_host else "demo"
+    source: Literal["demo", "ldap"] = "ldap" if settings.ldap_host or settings.ad_source == "gateway" else "demo"
     inactive_days: int | None = Field(default=None, ge=1, le=3650)
     old_password_days: int | None = Field(default=None, ge=1, le=3650)
     inactive_computer_days: int | None = Field(default=None, ge=1, le=3650)
@@ -59,7 +60,7 @@ class ScanRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    if storage.latest() is None and not settings.ldap_host:
+    if storage.latest() is None and not settings.ldap_host and settings.ad_source != "gateway":
         storage.save(analyze(collect_demo(), settings.inactive_days, settings.old_password_days,
                              {group.lower() for group in settings.critical_groups}, settings.risk_thresholds))
     yield
@@ -109,13 +110,17 @@ def connection_status():
     last_check = storage.latest_audit_event("connection_test")
     success = storage.latest_audit_event("connection_test", "success")
     last_success = success["occurred_at"] if success else None
-    return {"configured": all([settings.ldap_host, settings.ldap_base_dn,
-        settings.ldap_username]),
-        "password_required": not bool(settings.ldap_password),
-        "host": settings.ldap_host, "port": settings.ldap_port,
-        "use_ssl": settings.ldap_use_ssl, "base_dn": settings.ldap_base_dn,
-        "domain": ".".join(part[3:] for part in settings.ldap_base_dn.split(",") if part.lower().startswith("dc=")),
-        "reader_username": settings.ldap_username,
+    gateway = settings.ad_source == "gateway"
+    return {"configured": bool(settings.ad_gateway_url and settings.ad_gateway_token) if gateway
+            else all([settings.ldap_host, settings.ldap_base_dn, settings.ldap_username]),
+        "password_required": not bool(settings.ad_gateway_token) if gateway else not bool(settings.ldap_password),
+        "host": settings.ad_gateway_url if gateway else settings.ldap_host,
+        "port": 443 if gateway else settings.ldap_port,
+        "use_ssl": True if gateway else settings.ldap_use_ssl,
+        "connection_mode": "AD Gateway" if gateway else "LDAP_DIRECT",
+        "base_dn": "" if gateway else settings.ldap_base_dn,
+        "domain": "infraradar.test" if gateway else ".".join(part[3:] for part in settings.ldap_base_dn.split(",") if part.lower().startswith("dc=")),
+        "reader_username": "Gateway-managed" if gateway else settings.ldap_username,
         "read_only": True, "last_connection_success": last_success,
         "connection_test_status": last_check["status"] if last_check else "not_checked",
         "last_scan": latest["scanned_at"] if latest else None,
@@ -127,15 +132,15 @@ def connection_status():
 @app.post("/api/connection/test")
 def test_connection():
     try:
-        snapshot = collect_ldap(settings)
+        snapshot = collect_gateway(settings) if settings.ad_source == "gateway" else collect_ldap(settings)
         storage.audit("connection_test", "success", {"users": len(snapshot.accounts), "groups": len(snapshot.groups)})
         logger.info("LDAP connection test succeeded: %s users, %s groups", len(snapshot.accounts), len(snapshot.groups))
         return {"success": True, "users_found": len(snapshot.accounts),
                 "groups_found": len(snapshot.groups), "domain_policy": snapshot.domain_policy}
     except CollectorError as exc:
         storage.audit("connection_test", "failed", {"error_type": type(exc).__name__})
-        logger.warning("LDAP connection test failed: %s", exc)
-        raise HTTPException(503, str(exc)) from exc
+        logger.warning("Directory connection test failed: %s", type(exc).__name__)
+        raise HTTPException(503, "Источник каталога временно недоступен.") from exc
 
 
 @app.post("/api/scans")
@@ -145,14 +150,19 @@ def create_scan(request: ScanRequest):
     config = AnalysisConfig(**{**(storage.get_config() or {}), **overrides})
     storage.audit("scan", "started", {"source": request.source})
     try:
-        snapshot = collect_demo() if request.source == "demo" else collect_ldap(settings)
+        snapshot = (collect_demo() if request.source == "demo" else
+                    collect_gateway(settings) if settings.ad_source == "gateway" else collect_ldap(settings))
         collection_ms = round((time.perf_counter() - started) * 1000)
         event_started = time.perf_counter()
         if request.source == "ldap":
-            events, event_status = WindowsEventCollector(settings.event_ssh_alias or None,
-                settings.event_ssh_user or None,
-                Path(__file__).resolve().parents[2] / "scripts" / "Export-SecurityEvents.ps1").collect()
-            snapshot.auth_events = events
+            if settings.ad_source == "gateway":
+                events = snapshot.auth_events
+                event_status = snapshot.source_status.get("security_event_log", "not_evaluated")
+            else:
+                events, event_status = WindowsEventCollector(settings.event_ssh_alias or None,
+                    settings.event_ssh_user or None,
+                    Path(__file__).resolve().parents[2] / "scripts" / "Export-SecurityEvents.ps1").collect()
+                snapshot.auth_events = events
             snapshot.source_status["security_event_log"] = event_status
             storage.audit("event_collection", event_status, {"events": len(events)})
         events_ms = round((time.perf_counter() - event_started) * 1000)
@@ -175,8 +185,8 @@ def create_scan(request: ScanRequest):
         persistence_ms = round((time.perf_counter() - persistence_started) * 1000)
     except CollectorError as exc:
         storage.audit("scan", "failed", {"source": request.source, "error_type": type(exc).__name__})
-        logger.warning("Scan collection failed: %s", exc)
-        raise HTTPException(503, str(exc)) from exc
+        logger.warning("Scan collection failed: %s", type(exc).__name__)
+        raise HTTPException(503, "Источник данных временно недоступен.") from exc
     except Exception as exc:
         storage.audit("scan", "failed", {"source": request.source, "error_type": type(exc).__name__})
         raise

@@ -132,7 +132,28 @@ def _ad_interval_seconds(value) -> int | None:
     return abs(raw) // 10_000_000
 
 
-def collect_ldap(settings: Settings) -> Snapshot:
+def classify_snapshot(snapshot: Snapshot) -> Snapshot:
+    """Run account classification in the analyzer process, never in AD Gateway."""
+    for account in snapshot.accounts:
+        markers = []
+        if account.spns:
+            markers.append("SPN")
+        if account.username.lower().startswith(("svc_", "svc-", "ir-svc-", "sa_", "service_")):
+            markers.append("префикс имени")
+        if "ou=service accounts" in account.distinguished_name.lower():
+            markers.append("OU Service Accounts")
+        classes = {item.lower() for item in account.object_classes}
+        if "msds-groupmanagedserviceaccount" in classes:
+            markers.append("gMSA")
+        elif "msds-managedserviceaccount" in classes:
+            markers.append("MSA")
+        account.service_account = bool(markers)
+        account.service_reason = ", ".join(markers)
+        account.service_detection_reasons = markers
+    return snapshot
+
+
+def collect_ldap(settings: Settings, classify: bool = True) -> Snapshot:
     bind_password = settings.ldap_password
     allowed_owner_attrs = {"managedBy", "manager"} | {f"extensionAttribute{i}" for i in range(1, 16)}
     if settings.owner_attribute not in allowed_owner_attrs:
@@ -265,18 +286,6 @@ def collect_ldap(settings: Settings) -> Snapshot:
         password_must_change = attrs.get("pwdLastSet") in (0, "0")
         spns = _list(attrs.get("servicePrincipalName"))
         owner_raw = str(attrs.get(settings.owner_attribute) or "")
-        service_markers = []
-        if spns:
-            service_markers.append("SPN")
-        if username.lower().startswith(("svc_", "svc-", "ir-svc-", "sa_", "service_")):
-            service_markers.append("префикс имени")
-        if "ou=service accounts" in dn.lower():
-            service_markers.append("OU Service Accounts")
-        object_classes = {item.lower() for item in _list(attrs.get("objectClass"))}
-        if "msds-groupmanagedserviceaccount" in object_classes:
-            service_markers.append("gMSA")
-        elif "msds-managedserviceaccount" in object_classes:
-            service_markers.append("MSA")
         sid = str(attrs.get("objectSid") or "")
         primary_group_id = _int(attrs.get("primaryGroupID")) or None
         direct_groups = [group_by_dn.get(name.lower(), name) for name in _list(attrs.get("memberOf"))]
@@ -304,8 +313,7 @@ def collect_ldap(settings: Settings) -> Snapshot:
             password_must_change=password_must_change,
             password_never_expires=bool(flags & 0x10000),
             password_not_required=bool(flags & 0x20),
-            service_account=bool(service_markers), service_reason=", ".join(service_markers),
-            service_detection_reasons=service_markers,
+            object_classes=_list(attrs.get("objectClass")),
             owner=(_first_rdn(owner_raw) if settings.owner_attribute in ("managedBy", "manager")
                    else owner_raw) if owner_raw else None,
             owner_attribute=settings.owner_attribute,
@@ -350,11 +358,11 @@ def collect_ldap(settings: Settings) -> Snapshot:
                            "spns": _list(attrs.get("servicePrincipalName"))})
     policy_snapshot, interactive_status = InteractiveLogonCollector(settings.interactive_policy_path).load()
     for account in accounts:
-        if account.service_account:
-            account.interactive_logon = InteractiveLogonCollector.evaluate(
-                account, policy_snapshot, interactive_status)
-    return Snapshot(source="ldap", accounts=accounts, groups=groups, domain_policy=policy,
+        account.interactive_logon = InteractiveLogonCollector.evaluate(
+            account, policy_snapshot, interactive_status)
+    snapshot = Snapshot(source="ldap", accounts=accounts, groups=groups, domain_policy=policy,
                     computers=computers, fine_grained_policies=psos, spn_owners=spn_owners,
                     source_status={"ldap": "pass", "fine_grained_policies": "pass",
                                    "computers": "pass", "spn_inventory": "pass",
                                    "interactive_rights": interactive_status})
+    return classify_snapshot(snapshot) if classify else snapshot

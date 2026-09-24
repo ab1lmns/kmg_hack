@@ -1,0 +1,22 @@
+[Unit]
+Description=Read-only Identity Risk AD Gateway (HTTPS reverse proxy upstream)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=identityrisk
+Group=identityrisk
+WorkingDirectory=/opt/identity-risk-gateway
+Environment=AD_GATEWAY_DB_PATH=/var/lib/identity-risk/gateway/gateway.db
+ExecStart=/opt/identity-risk-gateway/backend/.venv/bin/uvicorn gateway.app:app --host 127.0.0.1 --port 8012 --workers 1 --no-access-log --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/identity-risk/gateway
+
+[Install]
+WantedBy=multi-user.target

@@ -5,17 +5,27 @@
 ## Архитектура и область
 
 ```text
-React/Vite → FastAPI (127.0.0.1) → LDAP (Tailscale, ir-ldap-reader)
-                                  → AD users/groups/computers/PSO/SPN
-                              → rules/scoring → SQLite → API/CSV
-                  optional → local DC rights snapshot / Security Event Log reader
+React/Vite → local FastAPI → HTTPS AD Gateway → Tailscale → AD/Event Log
+                  ↓
+              local rules/scoring → local SQLite → local API/CSV
+
+Private fallback: Tailscale Serve → DigitalOcean FastAPI → Tailscale → AD/Event Log
 ```
 
 Сканируются пользователи `OU=InfraRadarLab,DC=infraradar,DC=test`; группы, компьютеры, PSO и владельцы SPN читаются из домена для контекста. Контроллер `INFRARADAR-DC01.infraradar.test` доступен через Tailscale `100.93.42.103:389`. Windows-хост `DANIKEK` — `100.126.179.32`. Обычный scan использует `ir-ldap-reader@infraradar.test` для LDAP и `ir-event-reader@infraradar.test` для Security Event Log. Первый состоит только в `Domain Users`; второй — в `Event Log Readers` и базовой `Domain Users`. Administrator не используется backend.
 
 ## Запуск
 
-Нужны Python 3.11+ и Node.js 20+. Скопируйте `backend/.env.example` в игнорируемый Git `backend/.env`, задайте `LDAP_PASSWORD`, затем ограничьте права файла до `600`. Не записывайте секрет в код, HTTP-запрос или документацию.
+Для обычной разработки нужны Python 3.12+ и Node.js 20+. Скопируйте `backend/.env.example` в игнорируемый Git `backend/.env` и задайте только адрес HTTPS Gateway и **личный** `AD_GATEWAY_TOKEN`. Ограничьте права файла до `600`. LDAP и Event Log credentials разработчикам не нужны; Tailscale на их компьютерах не требуется. Подробности: [docs/GATEWAY_DEV.md](docs/GATEWAY_DEV.md).
+
+```bash
+cp backend/.env.example backend/.env
+# Укажите AD_GATEWAY_URL и личный AD_GATEWAY_TOKEN в backend/.env
+chmod 600 backend/.env
+./run
+```
+
+Для прежнего приватного режима `LDAP_DIRECT` используйте `AD_SOURCE=ldap_direct` и server-only LDAP/Event Log settings:
 
 ```bash
 cd backend
@@ -73,4 +83,4 @@ Live scan 2026-09-24 после обновления данных: 42 lab users,
 
 ## Общий командный стенд
 
-Приложение развёртывается на отдельном DigitalOcean Droplet с backend на `127.0.0.1:8011`, одним uvicorn worker и SQLite WAL. Для команды используется только Tailscale Serve; публичный IP не обслуживает это приложение. См. [docs/TEAM_ACCESS.md](docs/TEAM_ACCESS.md). Оператор обновляет стенд через `sudo bash deploy/deploy.sh <approved-commit>`; скрипт не меняет `backend/.env` и после перезапуска проверяет живой LDAP scan, Event Log, API, frontend и SQLite. Локальная разработка с `npm run dev` и backend на `127.0.0.1:8000` сохраняется.
+Существующий приватный DigitalOcean стенд остаётся резервным: backend на `127.0.0.1:8011`, Tailscale Serve и одна SQLite WAL. См. [docs/TEAM_ACCESS.md](docs/TEAM_ACCESS.md). Отдельный публичный HTTPS AD Gateway отдаёт только нормализованный read-only snapshot локальным backend разработчиков; сам Risk Engine и история сканов работают у каждого локально. См. [docs/GATEWAY_DEV.md](docs/GATEWAY_DEV.md). `deploy/deploy-gateway.sh` обновляет только отдельный gateway checkout/service и не перезапускает приватный стенд.

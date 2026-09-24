@@ -22,6 +22,9 @@ load_dotenv()
 @dataclass(frozen=True)
 class Settings:
     db_path: Path = Path(os.getenv("RADAR_DB_PATH", "./data/radar.db"))
+    ad_source: str = os.getenv("AD_SOURCE", "ldap_direct").lower()
+    ad_gateway_url: str = os.getenv("AD_GATEWAY_URL", "").rstrip("/")
+    ad_gateway_token: str = os.getenv("AD_GATEWAY_TOKEN", "")
     cors_origins: tuple[str, ...] = tuple(
         item.strip() for item in os.getenv(
             "RADAR_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
