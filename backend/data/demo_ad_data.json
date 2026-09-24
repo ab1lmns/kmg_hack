@@ -1,0 +1,28 @@
+{
+  "domain_policy": {"min_password_length": 12, "password_complexity": true, "lockout_threshold": 5},
+  "groups": [
+    {"id": "g1", "name": "IT Support", "member_of": ["Infrastructure Support"]},
+    {"id": "g2", "name": "Infrastructure Support", "member_of": ["Server Operators"]},
+    {"id": "g3", "name": "Backup Team", "member_of": ["Backup Operators"]},
+    {"id": "g4", "name": "Finance", "member_of": []},
+    {"id": "g5", "name": "Domain Admins", "member_of": []},
+    {"id": "g6", "name": "Server Operators", "member_of": []},
+    {"id": "g7", "name": "Backup Operators", "member_of": []},
+    {"id": "g8", "name": "DNSAdmins", "member_of": []}
+  ],
+  "accounts": [
+    {"id":"u1","username":"svc_backup","display_name":"Backup Service","department":"IT","enabled":true,"last_logon_days_ago":210,"password_set_days_ago":510,"password_never_expires":true,"service_account":true,"service_reason":"OU Service Accounts","owner":null,"groups":["Backup Team"]},
+    {"id":"u2","username":"alex.kim","display_name":"Alex Kim","department":"IT","enabled":true,"last_logon_days_ago":4,"password_set_days_ago":90,"groups":["IT Support"],"owner":"IT"},
+    {"id":"u3","username":"old.admin","display_name":"Old Administrator","department":"IT","enabled":true,"last_logon_days_ago":190,"password_set_days_ago":230,"groups":["Domain Admins"],"owner":"IT"},
+    {"id":"u4","username":"svc_sql","display_name":"SQL Service","department":"IT","enabled":true,"last_logon_days_ago":1,"password_set_days_ago":260,"password_never_expires":true,"service_account":true,"service_reason":"SPN","spns":["MSSQLSvc/sql.radar.lab:1433"],"groups":[],"owner":"Database Team"},
+    {"id":"u5","username":"maria.s","display_name":"Maria Sadykova","department":"Finance","enabled":true,"last_logon_days_ago":2,"password_set_days_ago":25,"groups":["Finance"],"owner":"Finance"},
+    {"id":"u6","username":"former.user","display_name":"Former Employee","department":"Finance","enabled":true,"last_logon_days_ago":200,"password_set_days_ago":240,"groups":["Finance"],"owner":null},
+    {"id":"u7","username":"locked.user","display_name":"Locked User","department":"Finance","enabled":true,"locked":true,"last_logon_days_ago":5,"password_set_days_ago":33,"groups":["Finance"],"owner":"Finance"},
+    {"id":"u8","username":"expired.user","display_name":"Expired Account","department":"IT","enabled":true,"account_expired":true,"last_logon_days_ago":100,"password_set_days_ago":160,"groups":[],"owner":null},
+    {"id":"u9","username":"disabled.admin","display_name":"Disabled Administrator","department":"IT","enabled":false,"last_logon_days_ago":250,"password_set_days_ago":300,"groups":["Domain Admins"],"owner":"IT"},
+    {"id":"u10","username":"dns.operator","display_name":"DNS Operator","department":"IT","enabled":true,"last_logon_days_ago":2,"password_set_days_ago":30,"groups":["DNSAdmins","Backup Operators"],"owner":"IT"},
+    {"id":"u11","username":"svc_monitor","display_name":"Monitoring Service","department":"IT","enabled":true,"last_logon_days_ago":140,"password_set_days_ago":210,"service_account":true,"service_reason":"Name prefix","groups":[],"owner":"Monitoring Team"},
+    {"id":"u12","username":"aisha.n","display_name":"Aisha Nurlanova","department":"Finance","enabled":true,"last_logon_days_ago":1,"password_set_days_ago":40,"groups":["Finance"],"owner":"Finance"}
+  ]
+}
+
