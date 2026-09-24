@@ -7,9 +7,9 @@
 | Требование | Статус | Доказательство |
 |---|---|---|
 | Подключение к тестовому AD | PASS | LIVE VERIFIED: LDAP bind `ir-ldap-reader`, 100.93.42.103:389 |
-| Сбор пользователей | PASS | LIVE VERIFIED: 32 пользователя lab OU, 57 групп для путей |
+| Сбор пользователей | PASS | LIVE VERIFIED: 42 аккаунта lab OU (33 сотрудника, 7 сервисных, 2 reader), 57 групп для путей |
 | Несколько проверок риска | PASS | LIVE VERIFIED: 43 находки; дополнительные положительные случаи UNIT VERIFIED |
-| Risk Score | PASS | LIVE VERIFIED: аккаунты/политика/компьютер, score 65; границы UNIT VERIFIED |
+| Risk Score | PASS | LIVE VERIFIED: аккаунты/политика/компьютер, score 73; границы UNIT VERIFIED |
 | Web Dashboard | PASS | API + frontend build; LIVE BROWSER VERIFIED: Dashboard desktop/mobile |
 | Список проблем с причинами | PASS | LIVE VERIFIED: 43 finding с reason/evidence, API + CSV |
 | Рекомендации | PASS | LIVE VERIFIED: у каждой находки непустой recommendation |
@@ -24,7 +24,7 @@
 | Password Never Expires | PASS | LIVE VERIFIED: реальные флаги и findings |
 | Старый пароль и порог | PARTIAL | UNIT VERIFIED: правило и FILETIME; live старого пароля нет |
 | pwdLastSet=0 / must change / отсутствие значения | PASS | UNIT VERIFIED: parsing и отдельный флаг; live положительный случай не создавался |
-| Заблокированный пользователь | PASS | LIVE VERIFIED: `ir-lockout-lab` блокирован тремя неверными bind, LDAP/PowerShell/finding подтверждены, затем разблокирован |
+| Заблокированный пользователь | PASS | LIVE VERIFIED: `m.kalayeva` блокирован тремя неверными bind, LDAP/PowerShell/finding подтверждены, затем разблокирован |
 | Истёкший пользователь | PASS | LIVE VERIFIED: флаг и finding в lab OU |
 | Disabled account | PASS | LIVE VERIFIED: реальные lab account findings |
 | PASSWORD_NOT_REQUIRED | PARTIAL | UNIT VERIFIED: UAC bit; live положительного примера нет |
@@ -38,8 +38,8 @@
 
 | Требование | Статус | Доказательство / предел |
 |---|---|---|
-| Прямые критические группы | PASS | LIVE VERIFIED: `ir-domainadmin` → Domain Admins, Critical |
-| Вложенные критические группы | PASS | LIVE VERIFIED: путь `ir-svc-backup` → lab delegated group; циклы UNIT VERIFIED |
+| Прямые критические группы | PASS | LIVE VERIFIED: `adm.a.sadykov` → Domain Admins, Critical |
+| Вложенные критические группы | PASS | LIVE VERIFIED: путь `svc_backup` → lab delegated group; циклы UNIT VERIFIED |
 | Domain/Enterprise/Schema Admins, Administrators | PASS | LIVE VERIFIED: группы читаются; позитивный путь Domain Admins, остальные распознаются кодом/UNIT |
 | Account/Server/Backup Operators, DNSAdmins | PASS | LIVE VERIFIED: группы читаются и есть lab примеры части ролей; остальные пути UNIT |
 | Несколько административных ролей | PASS | LIVE VERIFIED: 2 находки, scope показан |
@@ -83,7 +83,7 @@
 | Audit действий, включая Event Log/auth | PASS | LIVE VERIFIED: scan/connection/export; scan пишет event/auth status; секреты не логируются по code review |
 | CSV: объект, score, severity, category, source, evidence | PASS | LIVE VERIFIED: 43 строки, 14 колонок, UTF-8 BOM, `;` delimiter; Microsoft Excel открыл русский текст и колонки корректно |
 | SQLite schema/version, corruption, atomicity, concurrency | PASS | UNIT VERIFIED: schema v2, WAL, транзакции, восстановление; LIVE VERIFIED: persisted scan после restart |
-| Производительность/batch LDAP/timings | PASS | LIVE VERIFIED: scan 5,5 с на 32 user/57 groups/1 computer и 966 Security events; timings API (LDAP 200 мс, события 5,3 с) |
+| Производительность/batch LDAP/timings | PASS | LIVE VERIFIED: scan 5,75 с на 42 user/57 groups/1 computer и 1036 Security events; timings API (LDAP 156 мс, события 5,59 с) |
 | Ошибки DC/credentials/timeout/malformed DB/settings/partial events | PARTIAL | Validation/storage/collector UNIT VERIFIED; frontend edge cases пройдены на локальных API fixtures, реальный DC outage не создавался |
 | Backend read-only и минимальные права | PASS | LIVE VERIFIED: LDAP reader только Domain Users; event reader в lab OU состоит из Domain Users и builtin Event Log Readers, без admin token; оба используются обычным scan |
 | Пароли/секреты не в API/SQLite/CSV/log | PASS | Code review + live response/CSV review; `.env` ignored, mode 600 |

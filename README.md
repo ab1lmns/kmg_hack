@@ -51,7 +51,7 @@ Security Event Log собирают `scripts/Export-SecurityEvents.ps1` и `Wind
 
 ## Лабораторные сценарии
 
-`scripts/Seed-DemoAD.ps1` подготавливает объекты в lab OU. `scripts/Seed-LockoutLab.ps1` создал одного пользователя `ir-lockout-lab` в lab OU и `IR-Lab-Lockout-PSO`, применённую только к нему. AD требует хранить PSO в `CN=Password Settings Container,CN=System`; ACL чтения добавлен `ir-ldap-reader` только на этот PSO. В live проверке три неверных bind заблокировали lab user, collector создал `LOCKED_ACCOUNT`, затем пользователь был разблокирован. Сейчас он не заблокирован. Не запускайте тест блокировки на Administrator или reader.
+`scripts/Seed-DemoAD.ps1` идемпотентно обновляет только lab OU: 33 вымышленных сотрудника (включая отдельные `adm.*` учётные записи), 7 сервисных `svc_*` и 2 технических reader. При переименовании сохранены SID, пароли, членства, SPN и риск-флаги; новые пароли генерируются случайно и не выводятся. `scripts/Seed-LockoutLab.ps1` проверяет `m.kalayeva` и `IR-Lab-Lockout-PSO`, применённую только к ней. AD требует хранить PSO в `CN=Password Settings Container,CN=System`; ACL чтения добавлен `ir-ldap-reader` только на этот PSO. В live проверке три неверных bind заблокировали lab user, collector создал `LOCKED_ACCOUNT`, затем пользователь был разблокирован. Сейчас он не заблокирован. Не запускайте тест блокировки на Administrator или reader.
 
 Старые логины и пароли нельзя корректно создать правкой защищённых timestamps. Положительные правила для них, как и SIDHistory/duplicate SPN/delegation и атак, проверены unit-тестами; в текущем live снимке таких объектов/событий нет. Делегирование группы `IR-Lab-Admins` ограничено ACL тестовой OU и не равно Domain Admins.
 
@@ -69,4 +69,4 @@ RUN_LDAP_SMOKE=1 .venv/bin/python -m unittest discover -s tests -v
 cd ../frontend && npm run build
 ```
 
-Live scan 2026-09-24: 32 lab users, 57 groups, 1 computer, 1 FGPP, 43 findings, score 65/100; Security Event Log `pass`, 0 auth findings. Подробная проверка и честные статусы в [docs/TZ_COMPLIANCE.md](docs/TZ_COMPLIANCE.md) и [docs/FINAL_AUDIT.md](docs/FINAL_AUDIT.md). Веб-приложение не имеет собственной авторизации: используйте его только локально. Security Event Log читает отдельный минимально привилегированный reader; frontend и edge cases проверены в Chrome headless на 1440/390 px.
+Live scan 2026-09-24 после обновления данных: 42 lab users, 57 groups, 1 computer, 1 FGPP, 43 findings, score 73/100; Security Event Log `pass`, 0 auth findings. Подробная проверка и честные статусы в [docs/TZ_COMPLIANCE.md](docs/TZ_COMPLIANCE.md) и [docs/FINAL_AUDIT.md](docs/FINAL_AUDIT.md). Веб-приложение не имеет собственной авторизации: используйте его только локально. Security Event Log читает отдельный минимально привилегированный reader; frontend и edge cases проверены в Chrome headless на 1440/390 px.

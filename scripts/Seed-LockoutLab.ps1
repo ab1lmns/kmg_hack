@@ -6,14 +6,17 @@ $domain = Get-ADDomain
 if ($domain.DNSRoot -ne 'infraradar.test') { throw 'Unexpected domain' }
 $labOu = 'OU=InfraRadarLab,DC=infraradar,DC=test'
 $null = Get-ADOrganizationalUnit -Identity $labOu -ErrorAction Stop
-$sam = 'ir-lockout-lab'
+$sam = 'm.kalayeva'
 $user = Get-ADUser -Filter "SamAccountName -eq '$sam'" -ErrorAction Stop
 if (-not $user) {
     $bytes = New-Object byte[] 30
     $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
     try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
     $password = ConvertTo-SecureString (([Convert]::ToBase64String($bytes)) + 'aA1!') -AsPlainText -Force
-    New-ADUser -Name 'IR Lab Lockout' -SamAccountName $sam -Path $labOu `
+    New-ADUser -Name 'Madina Kalayeva' -DisplayName 'Madina Kalayeva' `
+        -GivenName 'Madina' -Surname 'Kalayeva' -Department 'HR' `
+        -Title 'HR Coordinator' -Company 'InfraRadar Group' `
+        -Description 'HR employee; FGPP lockout test subject' -SamAccountName $sam -Path $labOu `
         -UserPrincipalName "$sam@infraradar.test" -AccountPassword $password -Enabled $true
     $user = Get-ADUser -Identity $sam
 }

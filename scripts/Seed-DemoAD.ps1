@@ -1,136 +1,127 @@
-# Run on INFRARADAR-DC01. Creates only objects inside the existing lab OU.
-# Re-running does not reset passwords or duplicate users, groups, or memberships.
+# Run only on INFRARADAR-DC01. Changes only accounts in InfraRadarLab.
+# Migration preserves SID, password, memberships, SPNs and existing risk flags.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 Import-Module ActiveDirectory
-
-$domain = Get-ADDomain
-if ($domain.DNSRoot -ne 'infraradar.test') { throw 'Unexpected AD domain' }
+if ((Get-ADDomain).DNSRoot -ne 'infraradar.test' -or $env:COMPUTERNAME -ne 'INFRARADAR-DC01') {
+    throw 'Unexpected domain controller'
+}
 $labOu = 'OU=InfraRadarLab,DC=infraradar,DC=test'
 $null = Get-ADOrganizationalUnit -Identity $labOu -ErrorAction Stop
+$company = 'InfraRadar Group'
 
-function Assert-LabObject($object) {
-    if ($object.DistinguishedName -notlike "*,$labOu") {
-        throw "Object is outside the lab OU: $($object.DistinguishedName)"
+# Legacy name, target samAccountName, given name, surname, department, title, type.
+$people = @(
+    @('ir-alice','a.sadykov','Aidar','Sadykov','IT','Systems Engineer','employee'),
+    @('ir-bob','d.iskakov','Daniyar','Iskakov','Operations','Operations Analyst','employee'),
+    @('ir-carol','a.kassymova','Aigerim','Kassymova','IT','Helpdesk Specialist','employee'),
+    @('ir-demo-01','m.nurgaliyev','Murat','Nurgaliyev','Finance','Financial Analyst','employee'),
+    @('ir-demo-02','z.akhmetova','Zarina','Akhmetova','HR','HR Business Partner','employee'),
+    @('ir-demo-03','a.orynbek','Asel','Orynbek','Legal','Legal Counsel','employee'),
+    @('ir-demo-04','n.tulegenov','Nurlan','Tulegenov','Sales','Account Manager','employee'),
+    @('ir-demo-05','s.aliyeva','Saltanat','Aliyeva','Security','Security Analyst','employee'),
+    @('ir-demo-06','e.ivanov','Erik','Ivanov','IT','Infrastructure Engineer','employee'),
+    @('ir-demo-07','r.saparov','Rustem','Saparov','Operations','Shift Supervisor','employee'),
+    @('ir-demo-08','k.zhumabek','Kairat','Zhumabek','Finance','Accountant','employee'),
+    @('ir-demo-09','l.serikova','Laura','Serikova','Sales','Sales Operations Specialist','employee'),
+    @('ir-demo-expired2','b.askarov','Bolat','Askarov','Legal','Legal Specialist','employee'),
+    @('ir-expired','g.nazarova','Gulmira','Nazarova','HR','HR Specialist','employee'),
+    @('ir-lockout-lab','m.kalayeva','Madina','Kalayeva','HR','HR Coordinator','employee'),
+    @('ir-noexpire','t.ibrayeva','Tamara','Ibrayeva','Finance','Treasury Analyst','employee'),
+    @('ir-domainadmin','adm.a.sadykov','Aidar','Sadykov','IT','Domain Administrator','admin'),
+    @('ir-multirisk','adm.d.iskakov','Daniyar','Iskakov','Operations','Operations Administrator','admin'),
+    @('ir-disabled','adm.t.karimov','Timur','Karimov','IT','Former Administrator','admin'),
+    @('ir-dis-admin1','adm.r.saparov','Rustem','Saparov','Operations','Former Administrator','admin'),
+    @('ir-dis-admin2','adm.a.kassymova','Aigerim','Kassymova','IT','Former Helpdesk Administrator','admin'),
+    @('ir-accountop','adm.m.nurgaliyev','Murat','Nurgaliyev','Finance','Account Operator','admin'),
+    @('ir-serverop','adm.e.ivanov','Erik','Ivanov','IT','Server Operator','admin'),
+    @($null,'p.kuandykova','Perizat','Kuandykova','Finance','Procurement Analyst','employee'),
+    @($null,'a.bekov','Arman','Bekov','Sales','Sales Manager','employee'),
+    @($null,'d.seitova','Dana','Seitova','Legal','Compliance Officer','employee'),
+    @($null,'v.kim','Viktor','Kim','Security','SOC Analyst','employee'),
+    @($null,'n.omarov','Nursultan','Omarov','Operations','Logistics Coordinator','employee'),
+    @($null,'f.askarova','Farida','Askarova','HR','Recruiter','employee'),
+    @($null,'i.zhaksylykov','Ilyas','Zhaksylykov','IT','Software Engineer','employee'),
+    @($null,'j.ospanova','Zhanar','Ospanova','Finance','Finance Controller','employee'),
+    @($null,'q.bolatov','Kuanish','Bolatov','Security','GRC Specialist','employee'),
+    @($null,'s.romanenko','Sofia','Romanenko','Sales','Sales Analyst','employee')
+)
+# Existing service accounts keep their current SPNs and security posture.
+$services = @(
+    @('ir-svc-backup','svc_backup','Backup Service'),
+    @('ir-svc-sync','svc_exchange','Exchange Sync Service'),
+    @('ir-svc-monitor','svc_monitoring','Monitoring Service'),
+    @('ir-svc-report','svc_sql','SQL Reporting Service'),
+    @('ir-svc-deploy','svc_iis','IIS Deployment Service'),
+    @('ir-svc-batch','svc_1c','1C Batch Service'),
+    @('ir-svc-web','svc_web','Web Application Service')
+)
+function Assert-LabUser($user) {
+    if (-not $user -or $user.DistinguishedName -notlike "*,$labOu") {
+        throw "Account missing or outside lab OU: $($user.SamAccountName)"
     }
 }
-
-function Ensure-LabGroup([string]$name) {
-    try { $group = Get-ADGroup -Identity $name -ErrorAction Stop }
-    catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] { $group = $null }
-    if ($group) { Assert-LabObject $group; return $group }
-    New-ADGroup -Name $name -SamAccountName $name -GroupScope Global -GroupCategory Security -Path $labOu
-    return Get-ADGroup -Identity $name
+# Preflight every name before the first write. Never adopt a domain account.
+$rows = @($people) + @($services)
+$targets = @($rows | ForEach-Object { $_[1] })
+if (@($targets | Select-Object -Unique).Count -ne $targets.Count) { throw 'Duplicate target names' }
+$current = @{}
+foreach ($row in $rows) {
+    $oldName = $row[0]; $newName = $row[1]
+    $old = if ($oldName) { Get-ADUser -LDAPFilter "(sAMAccountName=$oldName)" } else { $null }
+    $new = Get-ADUser -LDAPFilter "(sAMAccountName=$newName)"
+    if ($old) { Assert-LabUser $old }
+    if ($new) { Assert-LabUser $new }
+    if ($old -and $new -and $old.SID.Value -ne $new.SID.Value) {
+        throw "Both legacy and target accounts exist: $oldName / $newName"
+    }
+    if ($oldName -and -not $old -and -not $new) { throw "Missing source and target: $oldName / $newName" }
+    $current[$newName] = if ($new) { $new } else { $old }
 }
-
+$expected = @($targets) + @('ir-ldap-reader','ir-event-reader')
+$legacy = @($rows | ForEach-Object { $_[0] })
+$unexpected = @(Get-ADUser -SearchBase $labOu -Filter * | Where-Object {
+    $_.SamAccountName -notin $expected -and $_.SamAccountName -notin $legacy
+})
+if ($unexpected.Count) { throw "Unexpected lab account(s): $($unexpected.SamAccountName -join ', ')" }
 function New-RandomPassword {
-    $bytes = New-Object byte[] 30
-    $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
-    try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
-    ConvertTo-SecureString -String (([Convert]::ToBase64String($bytes)) + 'aA1!') -AsPlainText -Force
+    $bytes = New-Object byte[] 48
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    ConvertTo-SecureString (([Convert]::ToBase64String($bytes)) + 'aA1!') -AsPlainText -Force
 }
-
-function Ensure-LabUser([string]$sam, [string]$name) {
-    try { $user = Get-ADUser -Identity $sam -ErrorAction Stop }
-    catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] { $user = $null }
-    if ($user) { Assert-LabObject $user; return $user }
-    New-ADUser -Name $name -DisplayName $name -SamAccountName $sam `
-        -UserPrincipalName "$sam@infraradar.test" -Path $labOu -Enabled $true `
-        -AccountPassword (New-RandomPassword) -ChangePasswordAtLogon $false
-    return Get-ADUser -Identity $sam
-}
-
-function Ensure-LabMembership([string]$groupName, [string]$memberName) {
-    $group = Get-ADGroup -Identity $groupName -ErrorAction Stop
-    Assert-LabObject $group
-    $member = Get-ADObject -LDAPFilter "(sAMAccountName=$memberName)" -SearchBase $labOu -ErrorAction Stop
-    if (-not $member) { throw "Missing lab member: $memberName" }
-    Assert-LabObject $member
-    $direct = @(Get-ADGroupMember -Identity $group.DistinguishedName | Select-Object -ExpandProperty DistinguishedName)
-    if ($member.DistinguishedName -notin $direct) {
-        Add-ADGroupMember -Identity $group.DistinguishedName -Members $member.DistinguishedName
+foreach ($row in $people) {
+    $oldName,$newName,$given,$surname,$department,$title,$kind = $row
+    $display = if ($kind -eq 'admin') { "Admin - $given $surname" } else { "$given $surname" }
+    $description = if ($kind -eq 'admin') { "Separate administrative identity; $department" } else { "$department employee; $title" }
+    $user = $current[$newName]
+    if (-not $user) {
+        New-ADUser -Name $display -DisplayName $display -GivenName $given -Surname $surname `
+            -SamAccountName $newName -UserPrincipalName "$newName@infraradar.test" `
+            -Department $department -Title $title -Company $company -Description $description `
+            -Path $labOu -AccountPassword (New-RandomPassword) -Enabled $true
+        continue
     }
+    Set-ADUser -Identity $user.DistinguishedName -SamAccountName $newName `
+        -UserPrincipalName "$newName@infraradar.test" -DisplayName $display `
+        -GivenName $given -Surname $surname -Department $department -Title $title `
+        -Company $company -Description $description
+    if ($user.Name -ne $display) { Rename-ADObject -Identity $user.DistinguishedName -NewName $display }
 }
-
-function Ensure-Service([string]$sam, [string]$spn, [bool]$nonExpiring) {
-    $user = Ensure-LabUser $sam "IR Service $sam"
-    $current = Get-ADUser -Identity $user.DistinguishedName -Properties ServicePrincipalName,PasswordNeverExpires
-    if ($spn -notin @($current.ServicePrincipalName)) {
-        Set-ADUser -Identity $user.DistinguishedName -ServicePrincipalNames @{Add=$spn}
-    }
-    if ($nonExpiring -and -not $current.PasswordNeverExpires) {
-        Set-ADUser -Identity $user.DistinguishedName -PasswordNeverExpires $true
-    }
+foreach ($row in $services) {
+    $oldName,$newName,$display = $row
+    $user = $current[$newName]
+    Set-ADUser -Identity $user.DistinguishedName -SamAccountName $newName `
+        -UserPrincipalName "$newName@infraradar.test" -DisplayName $display `
+        -Department 'IT' -Title $display -Company $company `
+        -Description "Non-interactive lab service identity; $display"
+    if ($user.Name -ne $display) { Rename-ADObject -Identity $user.DistinguishedName -NewName $display }
 }
-
-# These groups live inside the lab OU. IR-Lab-Admins receives delegated control
-# only over this OU and its descendants, making nested membership a real lab risk.
-@('IR-Lab-Admins', 'IR-Helpdesk', 'IR-Infrastructure', 'IR-Service-Ops', 'IR-Audit') |
-    ForEach-Object { $null = Ensure-LabGroup $_ }
-
-$labAdminSid = (Get-ADGroup -Identity 'IR-Lab-Admins').SID
-$aclPath = "AD:\$labOu"
-$acl = Get-Acl -Path $aclPath
-$hasDelegation = @($acl.Access | Where-Object {
-    ($_.IdentityReference.Value -eq $labAdminSid.Value -or
-     $_.IdentityReference.Value -like '*\IR-Lab-Admins') -and
-    (($_.ActiveDirectoryRights -band [System.DirectoryServices.ActiveDirectoryRights]::GenericAll) -ne 0)
-}).Count -gt 0
-if (-not $hasDelegation) {
-    $rule = [System.DirectoryServices.ActiveDirectoryAccessRule]::new(
-        $labAdminSid,
-        [System.DirectoryServices.ActiveDirectoryRights]::GenericAll,
-        [System.Security.AccessControl.AccessControlType]::Allow,
-        [System.DirectoryServices.ActiveDirectorySecurityInheritance]::All
-    )
-    $acl.AddAccessRule($rule)
-    Set-Acl -Path $aclPath -AclObject $acl
-}
-
-Ensure-LabMembership 'IR-Lab-Admins' 'IR-Infrastructure'
-Ensure-LabMembership 'IR-Infrastructure' 'IR-Helpdesk'
-Ensure-LabMembership 'IR-Infrastructure' 'IR-Service-Ops'
-Ensure-LabMembership 'IR-Lab-Admins' 'IR-Nested-Risk'
-
-# Healthy control accounts. New passwords are random, never printed or stored.
-1..9 | ForEach-Object {
-    $sam = 'ir-demo-{0:d2}' -f $_
-    $null = Ensure-LabUser $sam ('IR Demo User {0:d2}' -f $_)
-    Ensure-LabMembership 'IR-Audit' $sam
-}
-
-Ensure-Service 'ir-svc-backup' 'IRBackup/backup.infraradar.test' $true
-Ensure-Service 'ir-svc-sync' 'IRSync/sync.infraradar.test' $true
-Ensure-Service 'ir-svc-monitor' 'IRMonitor/monitor.infraradar.test' $false
-Ensure-Service 'ir-svc-report' 'IRReport/report.infraradar.test' $false
-Ensure-Service 'ir-svc-deploy' 'IRDeploy/deploy.infraradar.test' $true
-
-Ensure-LabMembership 'IR-Service-Ops' 'ir-svc-backup'
-Ensure-LabMembership 'IR-Helpdesk' 'ir-svc-sync'
-Ensure-LabMembership 'IR-Audit' 'ir-svc-monitor'
-Ensure-LabMembership 'IR-Audit' 'ir-svc-report'
-Ensure-LabMembership 'IR-Audit' 'ir-svc-deploy'
-
-$null = Ensure-LabUser 'ir-demo-expired2' 'IR Demo Expired 2'
-$expired = Get-ADUser 'ir-demo-expired2' -Properties AccountExpirationDate
-if (-not $expired.AccountExpirationDate -or $expired.AccountExpirationDate -gt (Get-Date)) {
-    Set-ADAccountExpiration -Identity $expired.DistinguishedName -DateTime (Get-Date).AddDays(-2)
-}
-
-@('ir-dis-admin1', 'ir-dis-admin2') | ForEach-Object {
-    $user = Ensure-LabUser $_ ('IR Demo Disabled Admin ' + $_)
-    if ($user.Enabled) { Disable-ADAccount -Identity $user.DistinguishedName }
-    Ensure-LabMembership 'IR-Lab-Admins' $_
-}
-
-# Existing lab users gain only membership in a lab group. No built-in group is changed.
-Ensure-LabMembership 'IR-Lab-Admins' 'ir-disabled'
-Ensure-LabMembership 'IR-Lab-Admins' 'ir-domainadmin'
-Ensure-LabMembership 'IR-Lab-Admins' 'ir-multirisk'
-Ensure-LabMembership 'IR-Helpdesk' 'ir-carol'
-
 [pscustomobject]@{
-    TestUsers = @(Get-ADUser -SearchBase $labOu -Filter *).Count
-    TestGroups = @(Get-ADGroup -SearchBase $labOu -Filter *).Count
+    Domain = 'infraradar.test'
     LabOU = $labOu
+    Employees = $people.Count
+    Services = $services.Count
+    TechnicalReaders = 2
+    TotalLabUsers = @(Get-ADUser -SearchBase $labOu -Filter *).Count
 } | ConvertTo-Json -Compress

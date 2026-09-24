@@ -26,7 +26,7 @@ try {
     }
     $tokens = @{}
     Get-ADUser -SearchBase $labOu -Filter * -Properties servicePrincipalName |
-        Where-Object { $_.SamAccountName -like 'ir-svc-*' -or $_.ServicePrincipalName } |
+        Where-Object { $_.SamAccountName -like 'svc_*' -or $_.ServicePrincipalName } |
         ForEach-Object {
             $principal = Get-ADObject -Identity $_.DistinguishedName -Properties tokenGroups
             $tokens[$_.SamAccountName.ToLowerInvariant()] = @(

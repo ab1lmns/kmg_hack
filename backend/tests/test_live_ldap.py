@@ -13,9 +13,15 @@ class LiveLdapTests(unittest.TestCase):
         self.assertEqual(settings.ldap_username, "ir-ldap-reader@infraradar.test")
         snapshot = collect_ldap(settings)
         self.assertEqual(snapshot.source, "ldap")
-        self.assertGreaterEqual(len(snapshot.accounts), 28)
+        self.assertGreaterEqual(len(snapshot.accounts), 42)
         self.assertGreaterEqual(len(snapshot.groups), 9)
-        self.assertIn("ir-svc-backup", {account.username for account in snapshot.accounts})
+        names = {account.username for account in snapshot.accounts}
+        self.assertIn("svc_backup", names)
+        self.assertIn("adm.a.sadykov", names)
+        self.assertNotIn("ir-domainadmin", names)
+        self.assertEqual(sum(account.service_account for account in snapshot.accounts), 7)
+        self.assertTrue({"Finance", "HR", "IT", "Security", "Operations", "Legal", "Sales"}.issubset(
+            {account.department for account in snapshot.accounts}))
         self.assertEqual(snapshot.domain_policy["max_password_age_days"], 42)
         self.assertEqual(snapshot.domain_policy["lockout_duration_minutes"], 30)
         result = analyze(snapshot, critical_groups={name.lower() for name in settings.critical_groups})

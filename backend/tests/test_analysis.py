@@ -82,7 +82,7 @@ class AnalysisTests(unittest.TestCase):
                       analyze(snapshot, old_password_days=90)["accounts"][0]["findings"]})
 
     def test_service_nested_privilege_and_combined_risk(self):
-        account = Account(id="svc", username="ir-svc-backup", display_name="Backup",
+        account = Account(id="svc", username="svc_backup", display_name="Backup",
                           service_account=True, service_reason="SPN", password_never_expires=True,
                           groups=["Service Ops"])
         groups = [Group(id="ops", name="Service Ops", member_of=["IR-Lab-Admins"]),
@@ -91,7 +91,7 @@ class AnalysisTests(unittest.TestCase):
         result = analyze(Snapshot(source="test", accounts=[account], groups=groups),
                          critical_groups={"ir-lab-admins"})
         row = result["accounts"][0]
-        self.assertIn(["ir-svc-backup", "Service Ops", "IR-Lab-Admins"], row["privilege_paths"])
+        self.assertIn(["svc_backup", "Service Ops", "IR-Lab-Admins"], row["privilege_paths"])
         self.assertEqual(row["risk_level"], "high")
         self.assertEqual(row["privilege_details"][0]["scope"], "delegated_ou")
         self.assertEqual(row["interactive_logon"]["status"], "not_evaluated")
