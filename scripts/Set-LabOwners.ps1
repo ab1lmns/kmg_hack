@@ -11,7 +11,10 @@ if ((Get-ADDomain).DNSRoot -ne 'infraradar.test' -or $env:COMPUTERNAME -ne 'INFR
 $labOu = 'OU=InfraRadarLab,DC=infraradar,DC=test'
 $null = Get-ADOrganizationalUnit -Identity $labOu -ErrorAction Stop
 $users = @(Get-ADUser -SearchBase $labOu -Filter * -Properties Manager)
-if ($users.Count -ne 42) { throw "Expected 42 existing lab accounts; found $($users.Count)" }
+if ($users.Count -notin @(42, 43) -or
+    ($users.Count -eq 43 -and 'adm.t.zhaksybek' -notin $users.SamAccountName)) {
+    throw "Unexpected lab account inventory: $($users.Count)"
+}
 $bySam = @{}
 foreach ($user in $users) { $bySam[$user.SamAccountName] = $user }
 
@@ -32,6 +35,7 @@ $ownerBySam = @{
     'adm.m.nurgaliyev' = 'm.nurgaliyev'
     'adm.r.saparov' = 'r.saparov'
     'adm.t.karimov' = 'a.sadykov'
+    'adm.t.zhaksybek' = 'a.sadykov'
     'ir-event-reader' = 'a.sadykov'
     'ir-ldap-reader' = 'a.sadykov'
     'svc_1c' = 'm.nurgaliyev'
@@ -56,7 +60,7 @@ foreach ($user in $users) {
     }
     $owner = Get-ADUser -Identity $ownerDn -ErrorAction Stop
     if (-not $bySam.ContainsKey($owner.SamAccountName)) {
-        throw "Owner is not among the 42 lab accounts: $($user.SamAccountName)"
+        throw "Owner is not among the verified lab accounts: $($user.SamAccountName)"
     }
     $plan += [pscustomobject]@{
         User = $user.SamAccountName

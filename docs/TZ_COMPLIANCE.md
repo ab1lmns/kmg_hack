@@ -34,7 +34,7 @@
 | Service с Password Never Expires | PASS | LIVE VERIFIED: все 7 разных сервисных аккаунтов; пять прежних флагов сохранены, два добавлены только в lab OU |
 | Service с избыточными правами | PASS | LIVE VERIFIED: вложенная lab OU группа и фактический ACL тестовой OU |
 | Service с разрешённым interactive logon | PARTIAL | LIVE VERIFIED: merged rights DC + полный token SID для 7 lab services, все 7 PASS (права не разрешены); положительный finding UNIT VERIFIED; другие целевые хосты и дополнительные ограничения входа NOT EVALUATED |
-| Владелец сервиса | PASS | LIVE VERIFIED: `manager` заполнен у всех 42 lab-аккаунтов; LDAP scan читает ответственных, семь прежних `MISSING_OWNER` исчезли |
+| Владелец сервиса | PASS | LIVE VERIFIED: `manager` заполнен у всех 43 текущих lab-аккаунтов; LDAP scan читает ответственных, семь прежних `MISSING_OWNER` исчезли |
 
 ## Привилегии и доменная политика
 

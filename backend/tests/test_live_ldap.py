@@ -18,7 +18,7 @@ class LiveLdapTests(unittest.TestCase):
         names = {account.username for account in snapshot.accounts}
         self.assertIn("svc_backup", names)
         self.assertIn("adm.a.sadykov", names)
-        self.assertEqual(sum(bool(account.owner) for account in snapshot.accounts), 42)
+        self.assertEqual(sum(bool(account.owner) for account in snapshot.accounts), len(snapshot.accounts))
         admin = next(account for account in snapshot.accounts if account.username == "adm.a.sadykov")
         self.assertEqual(admin.title, "Domain Administrator")
         self.assertEqual(admin.company, "InfraRadar Group")
