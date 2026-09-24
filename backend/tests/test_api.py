@@ -35,7 +35,7 @@ class ApiTests(unittest.TestCase):
                     return "".join([part async for part in response.body_iterator])
                 data = asyncio.run(read_body())
                 self.assertTrue(data.startswith("\ufeff"))
-                rows = list(csv.DictReader(io.StringIO(data.lstrip("\ufeff"))))
+                rows = list(csv.DictReader(io.StringIO(data.lstrip("\ufeff")), delimiter=";"))
                 self.assertEqual(len(rows), second["findings_found"])
                 self.assertIn("Category", rows[0])
                 self.assertIn("Why It Matters", rows[0])

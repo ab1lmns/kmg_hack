@@ -324,7 +324,9 @@ def account(account_id: str):
 def export_csv():
     result = latest_or_404()
     output = io.StringIO()
-    writer = csv.writer(output)
+    # Semicolon keeps UTF-8 Cyrillic and columns intact when Excel on this
+    # locale opens the downloaded CSV directly.
+    writer = csv.writer(output, delimiter=";")
     def safe_cell(value):
         text = str(value)
         return "'" + text if text.lstrip().startswith(("=", "+", "-", "@")) else text

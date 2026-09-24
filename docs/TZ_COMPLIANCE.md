@@ -1,19 +1,19 @@
 # Соответствие Identity Risk Analyzer оригинальному ТЗ
 
-Источник: `Техническое задание Hackathon Infrastructure_Risk_Radar.docx`, полностью перечитано 2026-09-24. Исходный frontend сохранён checkpoint `daeb4e1` (до продуктовых изменений). Эта матрица проверена по коду, тестам и live AD; прежние документы не использованы как доказательство. `LIVE VERIFIED` означает проверку на настоящем `infraradar.test`; `UNIT VERIFIED` — только тестовые объекты/события; `NOT EVALUATED` — источник отсутствует или позитивный сценарий не наблюдался. Визуальный проход основных страниц выполнен в Chrome headless на 1440 и 390 px; пустые/ошибочные сценарии отдельно не проходились.
+Источник: `Техническое задание Hackathon Infrastructure_Risk_Radar.docx`, полностью перечитано 2026-09-24. Исходный frontend сохранён checkpoint `daeb4e1` (до продуктовых изменений). Эта матрица проверена по коду, тестам и live AD; прежние документы не использованы как доказательство. `LIVE VERIFIED` означает проверку на настоящем `infraradar.test`; `UNIT VERIFIED` — только тестовые объекты/события; `NOT EVALUATED` — источник отсутствует или позитивный сценарий не наблюдался. Визуальный проход семи страниц и edge cases выполнен в Chrome headless на 1440 и 390 px после изменений; утверждённый стиль сохранён.
 
 ## Обязательный MVP (раздел 2.8)
 
 | Требование | Статус | Доказательство |
 |---|---|---|
 | Подключение к тестовому AD | PASS | LIVE VERIFIED: LDAP bind `ir-ldap-reader`, 100.93.42.103:389 |
-| Сбор пользователей | PASS | LIVE VERIFIED: 31 пользователь lab OU, 57 групп для путей |
-| Несколько проверок риска | PASS | LIVE VERIFIED: 42 находки; дополнительные положительные случаи UNIT VERIFIED |
+| Сбор пользователей | PASS | LIVE VERIFIED: 32 пользователя lab OU, 57 групп для путей |
+| Несколько проверок риска | PASS | LIVE VERIFIED: 43 находки; дополнительные положительные случаи UNIT VERIFIED |
 | Risk Score | PASS | LIVE VERIFIED: аккаунты/политика/компьютер, score 65; границы UNIT VERIFIED |
 | Web Dashboard | PASS | API + frontend build; LIVE BROWSER VERIFIED: Dashboard desktop/mobile |
-| Список проблем с причинами | PASS | LIVE VERIFIED: 42 finding с reason/evidence, API + CSV |
+| Список проблем с причинами | PASS | LIVE VERIFIED: 43 finding с reason/evidence, API + CSV |
 | Рекомендации | PASS | LIVE VERIFIED: у каждой находки непустой recommendation |
-| Экспорт CSV/Excel/HTML | PASS | LIVE VERIFIED: CSV UTF-8 BOM, 42 строки, все обязательные поля; ручное открытие Excel NOT VERIFIED |
+| Экспорт CSV/Excel/HTML | PASS | LIVE VERIFIED: CSV UTF-8 BOM, 43 строки, 14 колонок; русский текст и разделение колонок подтверждены прямым открытием в Microsoft Excel |
 
 ## Пользователи, активность и пароли
 
@@ -64,12 +64,12 @@
 
 | Требование | Статус | Доказательство / предел |
 |---|---|---|
-| Security Event Log как отдельный источник | PARTIAL | LIVE VERIFIED одноразовый read-only диагностический экспорт 24 ч через Administrator, 1349 raw/771 normalized; обычный backend требует отдельного неадминистративного SSH reader и показывает `not_evaluated` |
-| Нормализация 4624/4625/4771/4776 | PARTIAL | Диагностический live export + UNIT VERIFIED parsing; обычный backend источник NOT EVALUATED |
-| Possible Brute Force | PARTIAL | UNIT VERIFIED: окно, пользователь, source, timestamps, дедупликация; live кандидат не найден, обычный backend источник NOT EVALUATED |
-| Possible Password Spray | PARTIAL | UNIT VERIFIED: один source, много usernames, мало ошибок на каждого; live кандидат не найден |
-| Связь auth finding с целевым account score | PARTIAL | UNIT VERIFIED; live источник не включён |
-| Явные статусы PASS/FINDING/NOT_EVALUATED/ERROR | PASS | LIVE VERIFIED: LDAP/FGPP/computer/SPN/interactive PASS, event log NOT_EVALUATED; error UNIT VERIFIED |
+| Security Event Log как отдельный источник | PASS | LIVE VERIFIED: постоянный scan через `ir-event-reader` из lab OU, только Event Log Readers; 986 нормализованных событий, source `pass` |
+| Нормализация 4624/4625/4771/4776 | PASS | LIVE VERIFIED: под отдельным reader прочитаны все 4 ID, включая 4771 после включения failure Kerberos audit на DC; поле XML `Status` проверено |
+| Possible Brute Force | PARTIAL | UNIT VERIFIED: окно, пользователь, source, timestamps, дедупликация; live scan `pass` без кандидата; позитивная эвристика только UNIT VERIFIED |
+| Possible Password Spray | PARTIAL | UNIT VERIFIED: один source, много usernames, мало ошибок на каждого; live scan `pass` без кандидата; позитивная эвристика только UNIT VERIFIED |
+| Связь auth finding с целевым account score | PARTIAL | UNIT VERIFIED; live положительной auth находки нет, тестовую атаку не создавали |
+| Явные статусы PASS/FINDING/NOT_EVALUATED/ERROR | PASS | LIVE VERIFIED: все доступные источники `pass`, отсутствие auth находок отображается как «Сигналов не найдено»; error/partial/not_evaluated проверены в browser QA |
 
 ## Продукт, безопасность и устойчивость
 
@@ -77,20 +77,20 @@
 |---|---|---|
 | Dashboard score, severity, counts, top, categories, history | PASS | LIVE VERIFIED API и Chrome headless на 1440/390 px; добавлены locked/expired/computers/auth source |
 | Accounts filters/sorting and details | PASS | LIVE BROWSER VERIFIED: desktop/mobile, карточка, поиск в Accounts/Risks; новые поля/фильтры |
-| Computers, Authentication, FGPP UI | PARTIAL | API + frontend build; LIVE BROWSER VERIFIED: страницы desktop/mobile; Event Log данные NOT EVALUATED |
-| Findings: общая схема/evidence/recommendation/source/time/confidence | PASS | LIVE VERIFIED: все 42 непустые, CSV/API |
+| Computers, Authentication, FGPP UI | PASS | LIVE BROWSER VERIFIED: страницы desktop/mobile, реальный Event Log `pass`, no findings и error/partial/not_evaluated состояния |
+| Findings: общая схема/evidence/recommendation/source/time/confidence | PASS | LIVE VERIFIED: все 43 непустые, CSV/API |
 | Настройки/валидация/сохранение | PASS | UNIT VERIFIED: границы и Medium < High < Critical, API persistence; UI build |
 | Audit действий, включая Event Log/auth | PASS | LIVE VERIFIED: scan/connection/export; scan пишет event/auth status; секреты не логируются по code review |
-| CSV: объект, score, severity, category, source, evidence | PASS | LIVE VERIFIED: 42 строки, BOM; ручное открытие Excel NOT VERIFIED |
+| CSV: объект, score, severity, category, source, evidence | PASS | LIVE VERIFIED: 43 строки, 14 колонок, UTF-8 BOM, `;` delimiter; Microsoft Excel открыл русский текст и колонки корректно |
 | SQLite schema/version, corruption, atomicity, concurrency | PASS | UNIT VERIFIED: schema v2, WAL, транзакции, восстановление; LIVE VERIFIED: persisted scan после restart |
-| Производительность/batch LDAP/timings | PASS | LIVE VERIFIED: scan 190 мс на 31 user/57 groups/1 computer; batch search; timings API |
-| Ошибки DC/credentials/timeout/malformed DB/settings/partial events | PARTIAL | Validation/storage/collector UNIT VERIFIED; нет безопасного live DC outage и отдельного event reader |
-| Backend read-only и минимальные права | PASS | LIVE VERIFIED: reader только Domain Users, LDAP bind/search; отдельные lab scripts не входят в scan |
+| Производительность/batch LDAP/timings | PASS | LIVE VERIFIED: scan 5,5 с на 32 user/57 groups/1 computer и 966 Security events; timings API (LDAP 200 мс, события 5,3 с) |
+| Ошибки DC/credentials/timeout/malformed DB/settings/partial events | PARTIAL | Validation/storage/collector UNIT VERIFIED; frontend edge cases пройдены на локальных API fixtures, реальный DC outage не создавался |
+| Backend read-only и минимальные права | PASS | LIVE VERIFIED: LDAP reader только Domain Users; event reader в lab OU состоит из Domain Users и builtin Event Log Readers, без admin token; оба используются обычным scan |
 | Пароли/секреты не в API/SQLite/CSV/log | PASS | Code review + live response/CSV review; `.env` ignored, mode 600 |
 | Только локальная веб-привязка / Tailscale | PASS | LIVE VERIFIED: uvicorn 127.0.0.1, LDAP через Tailscale; новых публичных портов нет |
-| Frontend build и отсутствие API regression | PASS | Vite build; E2E старых/новых API; браузерный проход основных страниц |
-| Визуальный QA всех страниц | PARTIAL | LIVE BROWSER VERIFIED: 7 страниц desktop/mobile, account detail, search, без overflow/React exceptions; empty/error/form сценарии не пройдены |
+| Frontend build и отсутствие API regression | PASS | Vite build; E2E старых/новых API, повторный desktop/mobile browser QA; стиль/layout не менялся |
+| Визуальный QA всех страниц | PASS | LIVE BROWSER VERIFIED: 7 страниц desktop/mobile, no scan/empty/search/loading/API/LDAP/event error/timeout/invalid Settings, без overflow/React exceptions |
 
 ## Вывод
 
-Обязательный MVP остаётся **8/8 PASS**. Для интерактивного входа теперь есть проверка фактических прав на DC, но положительный live finding и остальные хосты не проверены. Для Event Log код и эвристики реализованы, но обычный backend не получает журнал без отдельной минимально привилегированной учётной записи. Сценарии старых логинов/паролей, SIDHistory, duplicate SPN и delegation не подделывались ради красивого live результата. Детали и текущий scan — в `docs/FINAL_AUDIT.md`.
+Обязательный MVP остаётся **8/8 PASS**. Для интерактивного входа теперь есть проверка фактических прав на DC, но положительный live finding и остальные хосты не проверены. Event Log читает отдельная минимально привилегированная учётная запись; обычный backend показывает `pass` и ноль auth findings при отсутствии кандидатов. Сценарии старых логинов/паролей, SIDHistory, duplicate SPN и delegation не подделывались ради красивого live результата. Детали и текущий scan — в `docs/FINAL_AUDIT.md`.

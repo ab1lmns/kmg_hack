@@ -30,7 +30,8 @@ def normalize_event(row: dict, target_host: str) -> dict | None:
         code = str(data.get("SubStatus") or data.get("FailureCode") or
                    data.get("Status") or "").upper()
         if event_id == 4771:
-            code = str(data.get("FailureCode") or "").upper()
+            # The rendered label is "Failure Code", but the XML field is Status.
+            code = str(data.get("Status") or data.get("FailureCode") or "").upper()
         if event_id == 4776:
             code = str(data.get("Status") or "").upper()
         failed = event_id != 4624 and code in BAD_PASSWORD_CODES
@@ -127,7 +128,10 @@ class WindowsEventCollector:
                                        "-o", "ConnectTimeout=8", self.ssh_alias,
                                        "whoami.exe", "/groups", "/fo", "csv"],
                                       capture_output=True, text=True, timeout=15, check=False)
-            if identity.returncode or re.search(r"S-1-5-32-544|S-1-5-21-[0-9-]+-512", identity.stdout):
+            privileged_sids = (r"S-1-5-32-(?:544|548|549|550|551|552)\b|"
+                               r"S-1-5-21-[0-9-]+-(?:512|518|519)\b")
+            if (identity.returncode or "S-1-5-32-573" not in identity.stdout or
+                    re.search(privileged_sids, identity.stdout)):
                 return [], "error"
             encoded = base64.b64encode(self.script_path.read_text(encoding="utf-8").encode("utf-16le")).decode("ascii")
             result = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",

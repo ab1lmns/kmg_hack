@@ -88,6 +88,9 @@ class ExtendedRulesTests(unittest.TestCase):
                                                 "FailureCode": "0x18"}}, "DC"))
         self.assertIn("POSSIBLE_PASSWORD_SPRAY",
                       {f["rule_id"] for f in detect_authentication_risks(spray)})
+        live_4771_shape = normalize_event({"id": 4771, "time": now.isoformat(),
+            "data": {"TargetUserName": "lab-user", "IpAddress": "100.1.2.3", "Status": "0x18"}}, "DC")
+        self.assertEqual(live_4771_shape["outcome"], "failed_bad_password")
         self.assertEqual(detect_authentication_risks([normalize_event({"id": 4776,
             "time": now.isoformat(), "data": {"TargetUserName": "victim", "Status": "0xC000006A"}}, "DC")]), [])
 

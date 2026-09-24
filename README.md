@@ -11,7 +11,7 @@ React/Vite → FastAPI (127.0.0.1) → LDAP (Tailscale, ir-ldap-reader)
                   optional → local DC rights snapshot / Security Event Log reader
 ```
 
-Сканируются пользователи `OU=InfraRadarLab,DC=infraradar,DC=test`; группы, компьютеры, PSO и владельцы SPN читаются из домена для контекста. Контроллер `INFRARADAR-DC01.infraradar.test` доступен через Tailscale `100.93.42.103:389`. Windows-хост `DANIKEK` — `100.126.179.32`. Обычный scan использует `ir-ldap-reader@infraradar.test`, который состоит только в `Domain Users`; Administrator не используется backend.
+Сканируются пользователи `OU=InfraRadarLab,DC=infraradar,DC=test`; группы, компьютеры, PSO и владельцы SPN читаются из домена для контекста. Контроллер `INFRARADAR-DC01.infraradar.test` доступен через Tailscale `100.93.42.103:389`. Windows-хост `DANIKEK` — `100.126.179.32`. Обычный scan использует `ir-ldap-reader@infraradar.test` для LDAP и `ir-event-reader@infraradar.test` для Security Event Log. Первый состоит только в `Domain Users`; второй — в `Event Log Readers` и базовой `Domain Users`. Administrator не используется backend.
 
 ## Запуск
 
@@ -47,7 +47,7 @@ curl -X POST http://127.0.0.1:8000/api/scans \
 
 Интерактивный collector читает свежий локальный JSON снимок прав DC. `scripts/Export-InteractiveRights.ps1` экспортирует применённые права через `secedit /mergedpolicy` и полный набор token SID сервисных пользователей lab OU. Для оценки нужны снимок младше 60 минут и все SID; deny имеет приоритет над allow. Результат относится только к целевому DC и правам входа: состояние RDP службы и другие ограничения требуют отдельной проверки. Экспорт выполняется вручную вне backend под диагностическим доступом; файл `backend/data/interactive-rights.json` игнорируется Git. Обычный scan использует лишь локальный снимок.
 
-Для Security Event Log предусмотрены `scripts/Export-SecurityEvents.ps1` и `WindowsEventCollector`. Включение требует отдельного SSH alias на DC и неадминистративной учётной записи с правом читать Security log; задаются `EVENT_SSH_ALIAS` и `EVENT_SSH_USER`. Collector сверяет SSH host/user и отвергает Administrator/административный токен. Пока такой доступ не настроен, источник остаётся `not_evaluated`. Эвристики учитывают только документированные ошибки пароля и используют консервативную дедупликацию; находки формулируются как **возможные** атаки, а не доказанный инцидент.
+Security Event Log собирают `scripts/Export-SecurityEvents.ps1` и `WindowsEventCollector` под отдельной учётной записью `ir-event-reader@infraradar.test` в lab OU. `scripts/Provision-EventReader.ps1` проверяет read-only ACE Security log и настраивает только Event Log Readers и SSH public key. На Mac настроен alias `infraradar-event-reader`, в закрытом `backend/.env` заданы `EVENT_SSH_ALIAS` и `EVENT_SSH_USER`. Collector сверяет SSH host/user, наличие Event Log Readers SID и отсутствие административного токена; обычный scan показывает `pass` при доступном источнике. Эвристики учитывают только документированные ошибки пароля и используют консервативную дедупликацию; находки формулируются как **возможные** атаки, а не доказанный инцидент.
 
 ## Лабораторные сценарии
 
@@ -59,7 +59,7 @@ curl -X POST http://127.0.0.1:8000/api/scans \
 
 Каждому правилу задана severity (Low/Medium/High/Critical) и балл. Худшая severity выбирает диапазон Risk Score, дополнительные находки повышают балл внутри него. AD Security Score = 100 минус средний Risk Score проверенных пользователей, компьютеров и политики; 100 лучше. Подробная формула: [docs/RISK_SCORING.md](docs/RISK_SCORING.md).
 
-Пороги пользователя, компьютера, пароля, brute force, spray, временного окна и диапазонов Risk Score сохраняются через `GET/PUT /api/config` с проверкой значений. Другие endpoints: `/api/health`, `/api/connection/status`, `/api/connection/test`, `/api/scans`, `/api/dashboard`, `/api/accounts`, `/api/groups`, `/api/computers`, `/api/authentication`, `/api/checks`, `/api/findings`, `/api/export/csv`, `/api/audit`. CSV содержит UTF-8 BOM для Excel. База `backend/data/radar.db` имеет schema version 2, транзакционные scan writes и WAL.
+Пороги пользователя, компьютера, пароля, brute force, spray, временного окна и диапазонов Risk Score сохраняются через `GET/PUT /api/config` с проверкой значений. Другие endpoints: `/api/health`, `/api/connection/status`, `/api/connection/test`, `/api/scans`, `/api/dashboard`, `/api/accounts`, `/api/groups`, `/api/computers`, `/api/authentication`, `/api/checks`, `/api/findings`, `/api/export/csv`, `/api/audit`. CSV содержит UTF-8 BOM и `;` как разделитель для корректного открытия русских полей в Excel. База `backend/data/radar.db` имеет schema version 2, транзакционные scan writes и WAL.
 
 ## Проверка и ограничения
 
@@ -69,4 +69,4 @@ RUN_LDAP_SMOKE=1 .venv/bin/python -m unittest discover -s tests -v
 cd ../frontend && npm run build
 ```
 
-Live scan 2026-09-24: 31 lab users, 57 groups, 1 computer, 1 FGPP, 42 findings, score 65/100. Подробная проверка и честные статусы в [docs/TZ_COMPLIANCE.md](docs/TZ_COMPLIANCE.md) и [docs/FINAL_AUDIT.md](docs/FINAL_AUDIT.md). Веб-приложение не имеет собственной авторизации: используйте его только локально. Security Event Log остаётся `not_evaluated` без отдельного минимального reader. Основные страницы проверены в Chrome headless на 1440/390 px; пустые и error состояния требуют отдельного прохода.
+Live scan 2026-09-24: 32 lab users, 57 groups, 1 computer, 1 FGPP, 43 findings, score 65/100; Security Event Log `pass`, 0 auth findings. Подробная проверка и честные статусы в [docs/TZ_COMPLIANCE.md](docs/TZ_COMPLIANCE.md) и [docs/FINAL_AUDIT.md](docs/FINAL_AUDIT.md). Веб-приложение не имеет собственной авторизации: используйте его только локально. Security Event Log читает отдельный минимально привилегированный reader; frontend и edge cases проверены в Chrome headless на 1440/390 px.
