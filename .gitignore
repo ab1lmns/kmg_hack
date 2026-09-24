@@ -3,6 +3,8 @@
 __pycache__/
 *.pyc
 *.db
+*.db-shm
+*.db-wal
 backend/data/interactive-rights.json
 node_modules/
 dist/

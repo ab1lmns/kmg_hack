@@ -16,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from .analysis import analyze
+from .ai_chat import ChatProviderError, answer as ai_answer, build_context
+from .remediation import finding_context, generate_plan
 from .collectors import CollectorError, collect_demo, collect_ldap
 from .events import WindowsEventCollector
 from .config import settings
@@ -110,7 +112,7 @@ async def team_access(request: Request, call_next):
     if not identity:
         return JSONResponse(status_code=401, content={"detail": "Требуется вход в аккаунт"}, headers={"Cache-Control": "no-store"})
     request.state.identity = identity
-    if (request.method in ("POST", "PUT") and path != "/api/auth/logout") or path in ("/api/export/csv", "/api/audit"):
+    if (request.method in ("POST", "PUT") and path not in ("/api/auth/logout", "/api/ai/chat", "/api/ai/remediation-plan")) or path in ("/api/export/csv", "/api/audit"):
         if identity["role"] != "operator":
             return JSONResponse(status_code=403, content={"detail": "Недостаточно прав"})
         if not rate_allowed("action:" + identity["username"] + ":" + path, 10 if path != "/api/scans" else 3, 60):
@@ -123,6 +125,22 @@ async def team_access(request: Request, call_next):
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=256)
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+    history: list[ChatMessage] = Field(default_factory=list, max_length=12)
+    page: str = Field(default="dashboard", max_length=40)
+
+
+class RemediationRequest(BaseModel):
+    scan_id: str = Field(min_length=1, max_length=100)
+    finding_id: str = Field(min_length=1, max_length=500)
 
 
 @app.post("/api/auth/login")
@@ -171,6 +189,50 @@ def latest_or_404():
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/ai/status")
+def ai_status():
+    return {"configured": bool(settings.openai_api_key), "model": settings.openai_model}
+
+
+@app.post("/api/ai/chat")
+def ai_chat(payload: ChatRequest, request: Request):
+    if not rate_allowed("ai:" + (request.client.host if request.client else "unknown"), 12, 60):
+        raise HTTPException(429, "Слишком много вопросов. Повторите через минуту.")
+    if not settings.openai_api_key:
+        raise HTTPException(503, "ИИ-чат пока не настроен. Добавьте OPENAI_API_KEY в backend/.env и перезапустите проект.")
+    scan = latest_or_404()
+    context = build_context(scan, storage.list_scans(), payload.message, payload.page)
+    messages = [item.model_dump() for item in payload.history]
+    messages.append({"role": "user", "content": payload.message})
+    try:
+        reply = ai_answer(settings.openai_api_key, settings.openai_model, context, messages)
+    except ChatProviderError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"answer": reply, "scan_id": scan["scan_id"], "scanned_at": scan["scanned_at"]}
+
+
+@app.post("/api/ai/remediation-plan")
+def remediation_plan(payload: RemediationRequest, request: Request):
+    if not rate_allowed("ai_plan:" + (request.client.host if request.client else "unknown"), 8, 60):
+        raise HTTPException(429, "Слишком много запросов. Повторите через минуту.")
+    if not settings.openai_api_key:
+        raise HTTPException(503, "ИИ-планы пока не настроены. Добавьте OPENAI_API_KEY в backend/.env.")
+    scan = latest_or_404()
+    if scan["scan_id"] != payload.scan_id:
+        raise HTTPException(409, "Анализ обновился. Обновите страницу риска и повторите запрос.")
+    finding = next((item for item in [*scan.get("findings", []), *scan.get("auth_findings", [])]
+                    if item.get("id") == payload.finding_id), None)
+    if finding is None:
+        raise HTTPException(404, "Риск не найден в текущем анализе")
+    try:
+        plan = generate_plan(settings.openai_api_key, settings.openai_model,
+                             finding_context(scan, finding))
+    except ChatProviderError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"scan_id": scan["scan_id"], "finding_id": finding["id"],
+            "scanned_at": scan["scanned_at"], "plan": plan.model_dump()}
 
 
 @app.get("/api/config")

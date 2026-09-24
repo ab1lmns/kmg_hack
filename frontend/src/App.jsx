@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, downloadCsv, setAccessToken } from './api.js'
 import { ScanHistory, ScanProgress } from './ScanExperience.jsx'
 import { securityScoreTone } from './securityScoreTone.js'
 import SourcePicker from './SourcePicker.jsx'
+import AiChat from './AiChat.jsx'
+import RemediationPlan from './RemediationPlan.jsx'
+
+const RiskMap = lazy(() => import('./RiskMap.jsx'))
 
 const severityLabels = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', safe: 'Без риска' }
 const severityPlain = { critical: 'Критично', high: 'Высокий риск', medium: 'Средний риск', low: 'Низкий риск' }
@@ -126,7 +130,16 @@ function Evidence({ evidence }) {
   return <div className="evidence"><span>Подтверждение</span><dl>{entries.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value == null ? 'Нет данных' : typeof value === 'object' ? JSON.stringify(value) : String(value)}</dd></div>)}</dl></div>
 }
 
-function Findings({ findings, accounts, onOpenAccount }) {
+function PlanButton({ finding, onPlan, compact = false }) {
+  return <button type="button" className={`plan-trigger${compact ? ' plan-trigger-compact' : ''}`}
+    onClick={event => { event.stopPropagation(); onPlan(finding) }}
+    onKeyDown={event => event.stopPropagation()}
+    aria-label={`Сформировать план исправления: ${finding.title}`}>
+    <span aria-hidden="true">✦</span>{compact ? 'План' : 'Сформировать план исправления'}
+  </button>
+}
+
+function Findings({ findings, accounts, onOpenAccount, onPlan }) {
   const [severity, setSeverity] = useState('all')
   const [category, setCategory] = useState('all')
   const [accountType, setAccountType] = useState('all')
@@ -155,7 +168,7 @@ function Findings({ findings, accounts, onOpenAccount }) {
   }), [findings, byId, severity, category, accountType, privileged, status, search, sort])
   return <><div className="section-head"><div><div className="eyebrow">Анализ</div><h1>Найденные риски</h1><p>Каждая строка содержит причину, подтверждение и рекомендуемое действие.</p></div><span className="count-pill">{filtered.length} из {findings.length}</span></div>
     <section className="panel table-panel"><div className="toolbar"><label className="search-field"><Icon name="search" size={18}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск по аккаунту или риску"/></label><label className="select-wrap"><span>Уровень</span><select value={severity} onChange={e => setSeverity(e.target.value)}><option value="all">Все</option><option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label><label className="select-wrap"><span>Категория</span><select value={category} onChange={e => setCategory(e.target.value)}><option value="all">Все</option>{Object.entries(categoryLabels).map(([key, label]) => <option value={key} key={key}>{label}</option>)}</select></label><label className="select-wrap"><span>Тип</span><select value={accountType} onChange={e => setAccountType(e.target.value)}><option value="all">Все</option><option value="user">Пользователь</option><option value="service">Сервис</option><option value="computer">Компьютер</option><option value="domain">Домен</option><option value="policy">FGPP</option><option value="authentication">Аутентификация</option></select></label><label className="select-wrap"><span>Права</span><select value={privileged} onChange={e => setPrivileged(e.target.value)}><option value="all">Все</option><option value="yes">Есть</option><option value="no">Нет</option></select></label><label className="select-wrap"><span>Статус</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="all">Все</option><option value="enabled">Включён</option><option value="disabled">Отключён</option></select></label><label className="select-wrap"><span>Сортировка</span><select value={sort} onChange={e => setSort(e.target.value)}><option value="risk">Risk Score</option><option value="severity">Severity</option><option value="username">Username</option><option value="activity">Последний вход</option><option value="password">Возраст пароля</option></select></label></div>
-      {filtered.length ? <div className="table-scroll"><table><thead><tr><th>Уровень</th><th>Аккаунт</th><th>Проблема</th><th>Причина</th><th>Балл</th><th></th></tr></thead><tbody>{filtered.map(item => <tr key={item.id} onClick={() => onOpenAccount(item.account_id, item.account_type)} tabIndex="0" onKeyDown={e => { if (e.key === 'Enter') onOpenAccount(item.account_id, item.account_type) }}><td><Badge level={item.severity}/></td><td className="mono">{item.username}</td><td><strong>{item.title}</strong></td><td className="muted-cell">{item.reason}</td><td className="mono">+{item.score}</td><td><Icon name="arrow" size={16}/></td></tr>)}</tbody></table></div> : <Empty title={findings.length ? "Ничего не найдено" : "Находок нет"} body={findings.length ? "Измените фильтр или поисковый запрос." : "В оценённых источниках находок нет. Статус источников показан на странице «Аутентификация»."}/>}
+      {filtered.length ? <div className="table-scroll"><table><thead><tr><th>Уровень</th><th>Аккаунт</th><th>Проблема</th><th>Причина</th><th>Балл</th><th>План исправления</th></tr></thead><tbody>{filtered.map(item => <tr key={item.id} onClick={() => onOpenAccount(item.account_id, item.account_type)} tabIndex="0" onKeyDown={e => { if (e.key === 'Enter') onOpenAccount(item.account_id, item.account_type) }}><td><Badge level={item.severity}/></td><td className="mono">{item.username}</td><td><strong>{item.title}</strong></td><td className="muted-cell">{item.reason}</td><td className="mono">+{item.score}</td><td><PlanButton finding={item} onPlan={onPlan} compact/></td></tr>)}</tbody></table></div> : <Empty title={findings.length ? "Ничего не найдено" : "Находок нет"} body={findings.length ? "Измените фильтр или поисковый запрос." : "В оценённых источниках находок нет. Статус источников показан на странице «Аутентификация»."}/>}
     </section></>
 }
 
@@ -229,7 +242,7 @@ function explainAccountFinding(item, account) {
   return explanation ? { title: explanation[0], text: explanation[1] } : { title: item.title, text: item.reason }
 }
 
-function AccountDetails({ account, riskThresholds, inactiveDays, onBack }) {
+function AccountDetails({ account, riskThresholds, inactiveDays, onBack, onPlan }) {
   const priority = { low: 1, medium: 2, high: 3, critical: 4 }
   const primary = account.findings.reduce((best, item) => !best || priority[item.severity] > priority[best.severity] ? item : best, null)
   const base = primary ? { low: 10, medium: riskThresholds?.medium ?? 30, high: riskThresholds?.high ?? 60, critical: riskThresholds?.critical ?? 80 }[primary.severity] : 0
@@ -264,12 +277,13 @@ function AccountDetails({ account, riskThresholds, inactiveDays, onBack }) {
         <h3>{explanation.title}</h3><p>{explanation.text}</p>
         <div className="recommendation"><span>Что сделать</span><p>{item.recommendation}</p></div>
         <details className="finding-evidence"><summary>Технические данные</summary><Evidence evidence={item.evidence}/></details>
+        <PlanButton finding={item} onPlan={onPlan}/>
       </article>
     })}</div> : <Empty title="Проблемы не обнаружены" body="Для этого аккаунта правила анализа не сработали."/>}</section>
   </>
 }
 
-function DomainPolicy({ dashboard }) {
+function DomainPolicy({ dashboard, onPlan }) {
   const policy = dashboard.domain_policy ?? {}
   const policyAvailable = Object.keys(policy).length > 0
   const findings = [...(dashboard.domain_policy_findings ?? []), ...(dashboard.fine_grained_policy_findings ?? [])]
@@ -302,7 +316,7 @@ function DomainPolicy({ dashboard }) {
         </dl>
       </article>)}</div> : <p className="muted">Политики не найдены или источник не оценён.</p>}
     </section>
-    <section className="panel finding-detail-panel"><div className="panel-head"><div><h2>Найденные проблемы</h2><p>{findings.length} срабатываний</p></div></div>{findings.length ? <div className="finding-cards">{findings.map(item => <article className="finding-card" key={item.id}><div className="finding-card-top"><Badge level={item.severity}/><strong>+{item.score} баллов</strong></div><h3>{item.title}</h3><p>{item.reason}</p><p><strong>Почему важно:</strong> {item.why_it_matters || item.reason}</p><div className="recommendation"><span>Что сделать</span><p>{item.recommendation}</p></div></article>)}</div> : <Empty title="Рисков политики не найдено" body="Все доступные базовые проверки пройдены или данные политики отсутствуют."/>}</section>
+    <section className="panel finding-detail-panel"><div className="panel-head"><div><h2>Найденные проблемы</h2><p>{findings.length} срабатываний</p></div></div>{findings.length ? <div className="finding-cards">{findings.map(item => <article className="finding-card" key={item.id}><div className="finding-card-top"><Badge level={item.severity}/><strong>+{item.score} баллов</strong></div><h3>{item.title}</h3><p>{item.reason}</p><p><strong>Почему важно:</strong> {item.why_it_matters || item.reason}</p><div className="recommendation"><span>Что сделать</span><p>{item.recommendation}</p></div><PlanButton finding={item} onPlan={onPlan}/></article>)}</div> : <Empty title="Рисков политики не найдено" body="Все доступные базовые проверки пройдены или данные политики отсутствуют."/>}</section>
   </>
 }
 
@@ -312,9 +326,9 @@ function Computers({ computers, findings }) {
   return <><div className="section-head"><div><div className="eyebrow">Объекты</div><h1>Компьютеры</h1><p>Компьютеры Active Directory и связанные риски.</p></div><span className="count-pill">{computers.length} объектов</span></div><section className="panel table-panel"><div className="toolbar"><label className="search-field"><Icon name="search" size={18}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Имя, DNS или ОС"/></label></div><div className="table-scroll"><table><thead><tr><th>Компьютер</th><th>ОС</th><th>Состояние</th><th>Последний вход</th><th>Уровень</th><th title="Account Risk Score: 100 означает максимальный выявленный риск">Risk Score</th></tr></thead><tbody>{filtered.map(item => <tr key={item.id}><td><strong className="mono">{item.name}</strong><small className="table-sub">{item.dns_hostname}</small></td><td>{item.operating_system || '—'}</td><td>{item.enabled ? 'Включён' : 'Отключён'}</td><td>{formatDate(item.last_logon)}</td><td><Badge level={item.risk_level}/></td><td className="score-cell">{item.risk_score}/100</td></tr>)}</tbody></table></div>{!filtered.length && <Empty title="Компьютеры не найдены" body="Измените поисковый запрос или проверьте источник данных."/>}</section>{filtered.map(item => <section className="panel detail-panel" key={`detail-${item.id}`}><h2>{item.name}</h2><dl className="facts"><div><dt>DN</dt><dd className="mono">{item.distinguished_name}</dd></div><div><dt>Пароль установлен</dt><dd>{formatDate(item.password_last_set)}</dd></div><div><dt>Создан</dt><dd>{formatDate(item.when_created)}</dd></div><div><dt>SPN</dt><dd>{item.spns?.length ?? 0}</dd></div><div><dt>SIDHistory</dt><dd>{item.sid_history?.length ?? 0}</dd></div><div><dt>Делегация</dt><dd>{Object.keys(item.delegation ?? {}).length ? delegationLabel(item.delegation) : 'Не обнаружена'}</dd></div><div><dt>Находки</dt><dd>{findings.filter(finding => finding.account_id === item.id).map(finding => finding.title).join(', ') || 'Нет'}</dd></div></dl></section>)}</>
 }
 
-function Authentication({ authentication, dashboard }) {
+function Authentication({ authentication, dashboard, onPlan }) {
   const status = authentication?.status ?? 'not_evaluated'
-  return <><div className="section-head"><div><div className="eyebrow">События</div><h1>Аутентификация</h1><p>События Security Event Log и сигналы подбора паролей на момент scan {formatDateTime(dashboard.scanned_at)}.</p></div></div><section className="panel detail-panel"><h2>Источник событий</h2><dl className="facts"><div><dt>Статус</dt><dd>{status === 'pass' ? 'Проверен' : status === 'partial' ? 'Частичные данные' : status === 'error' ? 'Ошибка чтения' : 'Не оценён'}</dd></div><div><dt>Событий</dt><dd>{status === 'pass' || status === 'partial' ? authentication?.events ?? 0 : '—'}</dd></div><div><dt>Ошибки пароля после фильтрации</dt><dd>{status === 'pass' || status === 'partial' ? authentication?.failed_bad_password ?? 0 : '—'}</dd></div><div><dt>Сигналы</dt><dd>{status === 'pass' || status === 'partial' ? authentication?.findings?.length ?? 0 : '—'}</dd></div></dl>{status !== 'pass' && <p className="scope-note">{status === 'error' ? 'Не удалось прочитать Security Event Log. Проверьте подключение и права reader.' : status === 'partial' ? 'Собрана только часть журнала; выводы по атакам могут быть неполными.' : 'Источник Security Event Log не настроен или недоступен для оценки.'}</p>}</section><section className="panel detail-panel"><h2>Источники проверки</h2><dl className="facts">{Object.entries(dashboard.source_status ?? {}).map(([name, value]) => <div key={name}><dt>{sourceStatusLabels[name] ?? name}</dt><dd>{checkStatusLabels[value] ?? String(value)}</dd></div>)}</dl></section><section className="panel finding-detail-panel"><h2>Обнаруженные сигналы</h2>{authentication?.findings?.length ? authentication.findings.map(item => <article className="finding-card" key={item.id}><Badge level={item.severity}/><h3>{item.title}</h3><p>{item.reason}</p><Evidence evidence={item.evidence}/></article>) : <p className="muted">{status === 'pass' ? 'Сигналов не найдено.' : status === 'partial' ? 'В собранной части журнала сигналов не найдено; полную проверку подтвердить нельзя.' : 'Без доступа к журналу вывод о наличии или отсутствии атак невозможен.'}</p>}</section></>
+  return <><div className="section-head"><div><div className="eyebrow">События</div><h1>Аутентификация</h1><p>События Security Event Log и сигналы подбора паролей на момент scan {formatDateTime(dashboard.scanned_at)}.</p></div></div><section className="panel detail-panel"><h2>Источник событий</h2><dl className="facts"><div><dt>Статус</dt><dd>{status === 'pass' ? 'Проверен' : status === 'partial' ? 'Частичные данные' : status === 'error' ? 'Ошибка чтения' : 'Не оценён'}</dd></div><div><dt>Событий</dt><dd>{status === 'pass' || status === 'partial' ? authentication?.events ?? 0 : '—'}</dd></div><div><dt>Ошибки пароля после фильтрации</dt><dd>{status === 'pass' || status === 'partial' ? authentication?.failed_bad_password ?? 0 : '—'}</dd></div><div><dt>Сигналы</dt><dd>{status === 'pass' || status === 'partial' ? authentication?.findings?.length ?? 0 : '—'}</dd></div></dl>{status !== 'pass' && <p className="scope-note">{status === 'error' ? 'Не удалось прочитать Security Event Log. Проверьте подключение и права reader.' : status === 'partial' ? 'Собрана только часть журнала; выводы по атакам могут быть неполными.' : 'Источник Security Event Log не настроен или недоступен для оценки.'}</p>}</section><section className="panel detail-panel"><h2>Источники проверки</h2><dl className="facts">{Object.entries(dashboard.source_status ?? {}).map(([name, value]) => <div key={name}><dt>{sourceStatusLabels[name] ?? name}</dt><dd>{checkStatusLabels[value] ?? String(value)}</dd></div>)}</dl></section><section className="panel finding-detail-panel"><h2>Обнаруженные сигналы</h2>{authentication?.findings?.length ? authentication.findings.map(item => <article className="finding-card" key={item.id}><Badge level={item.severity}/><h3>{item.title}</h3><p>{item.reason}</p><Evidence evidence={item.evidence}/><PlanButton finding={item} onPlan={onPlan}/></article>) : <p className="muted">{status === 'pass' ? 'Сигналов не найдено.' : status === 'partial' ? 'В собранной части журнала сигналов не найдено; полную проверку подтвердить нельзя.' : 'Без доступа к журналу вывод о наличии или отсутствии атак невозможен.'}</p>}</section></>
 }
 
 const thresholdFields = [['inactive_days', 'Неактивность, дней', 1, 3650], ['old_password_days', 'Возраст пароля, дней', 1, 3650], ['inactive_computer_days', 'Неактивный компьютер, дней', 1, 3650], ['brute_attempts', 'Попыток для brute force', 2, 1000], ['spray_unique_users', 'Аккаунтов для spray', 3, 1000], ['auth_window_minutes', 'Окно событий, минут', 1, 1440], ['risk_medium_threshold', 'Порог Medium', 10, 98], ['risk_high_threshold', 'Порог High', 11, 99], ['risk_critical_threshold', 'Порог Critical', 12, 100]]
@@ -359,7 +373,7 @@ export default function App() {
   const [transition, setTransition] = useState('enter')
   const [direction, setDirection] = useState(1)
   const transitionTimer = useRef(null)
-  const pageOrder = ['dashboard', 'findings', 'accounts', 'computers', 'policy', 'authentication', 'history', 'settings']
+  const pageOrder = ['dashboard', 'risk-map', 'findings', 'accounts', 'computers', 'policy', 'authentication', 'history', 'settings']
   const pageIndex = key => pageOrder.indexOf(key === 'detail' ? 'accounts' : key)
 
   function setPage(nextPage, nextAccountId = null) {
@@ -405,6 +419,9 @@ export default function App() {
   const [testing, setTesting] = useState(false)
   const [notice, setNotice] = useState(null)
   const [error, setError] = useState(null)
+  const [selectedFinding, setSelectedFinding] = useState(null)
+  const planCache = useRef(new Map())
+  const closePlan = useCallback(() => setSelectedFinding(null), [])
 
   const refresh = useCallback(async () => {
     const [config, ldap, history] = await Promise.all([api('/config'), api('/connection/status'), api('/scans')])
@@ -450,6 +467,7 @@ export default function App() {
   }
 
   async function runScan() {
+    setSelectedFinding(null); planCache.current.clear()
     setScanning(true); setScanStartedAt(new Date()); setError(null); setRecentRun(null)
     try {
       const result = await api('/scans', { method: 'POST', body: JSON.stringify({ source, ...thresholds }) })
@@ -475,7 +493,7 @@ export default function App() {
   function openAccount(id, type) { if (id === '__domain__' || type === 'domain' || type === 'policy') { setPage('policy'); return } if (type === 'computer' || computers.some(item => item.id === id)) { setPage('computers'); return } if (type === 'authentication' || !accounts.some(item => item.id === id)) { setPage('authentication'); return } setPage('detail', id) }
   const selectedAccount = accounts.find(item => item.id === accountId)
   const detail = selectedAccount ? { ...selectedAccount, findings: findings.filter(item => item.account_id === accountId) } : null
-  const nav = [{ key: 'dashboard', label: 'Обзор', icon: 'dashboard' }, { key: 'findings', label: 'Риски', icon: 'shield' }, { key: 'accounts', label: 'Аккаунты', icon: 'users' }, { key: 'computers', label: 'Компьютеры', icon: 'server' }, { key: 'policy', label: 'Политика домена', icon: 'shield' }, { key: 'authentication', label: 'Аутентификация', icon: 'shield' }, { key: 'history', label: 'История', icon: 'history' }, { key: 'settings', label: 'Подключение', icon: 'settings' }]
+  const nav = [{ key: 'dashboard', label: 'Обзор', icon: 'dashboard' }, { key: 'risk-map', label: 'Карта рисков', icon: 'graph' }, { key: 'findings', label: 'Риски', icon: 'shield' }, { key: 'accounts', label: 'Аккаунты', icon: 'users' }, { key: 'computers', label: 'Компьютеры', icon: 'server' }, { key: 'policy', label: 'Политика домена', icon: 'shield' }, { key: 'authentication', label: 'Аутентификация', icon: 'shield' }, { key: 'history', label: 'История', icon: 'history' }, { key: 'settings', label: 'Подключение', icon: 'settings' }]
 
   if (auth === null) return <div className="loading">Проверяем доступ…</div>
   if (auth === 'error') return <div className="login-page"><section className="panel login-panel"><h1>Сервис недоступен</h1><p>{loginError}</p></section></div>
@@ -492,15 +510,16 @@ export default function App() {
         <div className="page-stage" data-page={targetPage}>
         <div key={page} className={`page-content page-${transition}`} inert={transition === 'exit' ? true : undefined}>
         {page === 'dashboard' && <Dashboard dashboard={dashboard} accounts={accounts} scans={scans} comparison={comparison} onOpenAccount={openAccount}/>}
-        {page === 'findings' && <Findings findings={findings} accounts={accounts} onOpenAccount={openAccount}/>}
+        {page === 'risk-map' && <Suspense fallback={<div className="loading">Загружаем карту рисков…</div>}><RiskMap dashboard={dashboard} accounts={accounts} computers={computers} findings={findings} authentication={authentication} onOpenAccount={openAccount} onPlan={setSelectedFinding}/></Suspense>}
+        {page === 'findings' && <Findings findings={findings} accounts={accounts} onOpenAccount={openAccount} onPlan={setSelectedFinding}/>}
         {page === 'accounts' && <Accounts accounts={accounts} findings={findings} onOpenAccount={openAccount}/>}
         {page === 'computers' && <Computers computers={computers} findings={findings}/>}
-        {page === 'detail' && detail && <AccountDetails account={detail} riskThresholds={dashboard.risk_thresholds} inactiveDays={dashboard.thresholds?.inactive_days} onBack={() => setPage('accounts')}/>}
-        {page === 'policy' && <DomainPolicy dashboard={dashboard}/>}
-        {page === 'authentication' && <Authentication authentication={authentication} dashboard={dashboard}/>}
+        {page === 'detail' && detail && <AccountDetails account={detail} riskThresholds={dashboard.risk_thresholds} inactiveDays={dashboard.thresholds?.inactive_days} onBack={() => setPage('accounts')} onPlan={setSelectedFinding}/>}
+        {page === 'policy' && <DomainPolicy dashboard={dashboard} onPlan={setSelectedFinding}/>}
+        {page === 'authentication' && <Authentication authentication={authentication} dashboard={dashboard} onPlan={setSelectedFinding}/>}
         {page === 'history' && <ScanHistory scans={scans} selectedScanId={selectedScanId} onSelect={setSelectedScanId} recentRun={recentRun} riskThresholds={dashboard.risk_thresholds}/>}
         {page === 'settings' && <Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} onSave={saveThresholds} saving={saving}/>}
         </div></div>
       </> : page === 'settings' ? <div className="page-content"><Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} onSave={saveThresholds} saving={saving}/></div> : page === 'history' ? <div className="page-content"><ScanHistory scans={scans} selectedScanId={selectedScanId} onSelect={setSelectedScanId} recentRun={recentRun} riskThresholds={thresholds}/></div> : <Empty title="Нет результатов" body="Запустите анализ, чтобы увидеть результаты. Настройки подключения доступны в разделе «Подключение»."/>}</div>
-    </main></div>
+    </main><AiChat page={page} scanId={dashboard?.scan_id} scannedAt={dashboard?.scanned_at} score={dashboard?.security_score} findingCount={dashboard?.finding_count}/>{selectedFinding && dashboard && <RemediationPlan key={`${dashboard.scan_id}:${selectedFinding.id}`} finding={selectedFinding} scanId={dashboard.scan_id} cache={planCache.current} onClose={closePlan}/>}</div>
 }
