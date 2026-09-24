@@ -93,7 +93,7 @@ class AnalysisTests(unittest.TestCase):
         row = result["accounts"][0]
         self.assertIn(["ir-svc-backup", "Service Ops", "IR-Lab-Admins"], row["privilege_paths"])
         self.assertEqual(row["risk_level"], "high")
-        self.assertEqual(row["privilege_details"][0]["scope"], "lab_ou")
+        self.assertEqual(row["privilege_details"][0]["scope"], "delegated_ou")
         self.assertEqual(row["interactive_logon"]["status"], "not_evaluated")
         self.assertIn("SERVICE_PRIVILEGED", {item["rule_id"] for item in row["findings"]})
         self.assertIn("SERVICE_PASSWORD_NEVER_EXPIRES", {item["rule_id"] for item in row["findings"]})
@@ -112,7 +112,7 @@ class AnalysisTests(unittest.TestCase):
                       distinguished_name="CN=Domain Admins,CN=Users,DC=infraradar,DC=test")
         row = analyze(Snapshot(source="test", accounts=[account], groups=[group]))["accounts"][0]
         self.assertEqual(row["risk_level"], "critical")
-        self.assertEqual(row["privilege_details"][0]["scope"], "built_in")
+        self.assertEqual(row["privilege_details"][0]["scope"], "domain")
         self.assertEqual(row["findings"][0]["severity"], "critical")
 
     def test_all_findings_explain_why(self):

@@ -20,6 +20,11 @@ class ApiTests(unittest.TestCase):
                 self.assertGreater(second["findings_found"], 0)
                 self.assertGreater(second["groups_scanned"], 0)
                 self.assertEqual(main.dashboard()["scan_id"], second["scan_id"])
+                self.assertIsInstance(main.computers(), list)
+                self.assertIn("status", main.authentication())
+                self.assertIn("sources", main.checks())
+                self.assertEqual(len(main.accounts()), second["users_scanned"])
+                self.assertEqual(len(main.findings(q="")), second["findings_found"])
                 comparison = main.compare_scans()
                 self.assertEqual(comparison["previous_scan_id"], first["scan_id"])
                 self.assertEqual(comparison["added_findings"], 0)
@@ -39,6 +44,16 @@ class ApiTests(unittest.TestCase):
                 self.assertIn(("scan", "started"), actions)
                 self.assertIn(("scan", "completed"), actions)
                 self.assertIn(("export_csv", "completed"), actions)
+
+    def test_config_validation_and_persistence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(main, "storage", Storage(Path(temp) / "radar.db")):
+                config = main.AnalysisConfig(inactive_days=120, risk_medium_threshold=25,
+                                             risk_high_threshold=60, risk_critical_threshold=80)
+                main.update_config(config)
+                self.assertEqual(main.get_config()["inactive_days"], 120)
+                with self.assertRaises(ValueError):
+                    main.AnalysisConfig(risk_medium_threshold=70, risk_high_threshold=60)
 
 
 if __name__ == "__main__":

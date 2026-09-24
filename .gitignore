@@ -3,7 +3,7 @@
 __pycache__/
 *.pyc
 *.db
+backend/data/interactive-rights.json
 node_modules/
 dist/
 .DS_Store
-

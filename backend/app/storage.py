@@ -7,26 +7,47 @@ from pathlib import Path
 from typing import Any
 
 
+class StorageError(RuntimeError):
+    pass
+
+
 class Storage:
     def __init__(self, path: Path):
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
-            db.execute("""CREATE TABLE IF NOT EXISTS scans (
+        try:
+            with self._connect() as db:
+                version = db.execute("PRAGMA user_version").fetchone()[0]
+                if version > 2:
+                    raise StorageError("Формат базы новее этой версии приложения")
+                db.execute("PRAGMA journal_mode=WAL")
+                db.execute("""CREATE TABLE IF NOT EXISTS scans (
                 id TEXT PRIMARY KEY, scanned_at TEXT NOT NULL, source TEXT NOT NULL,
                 payload TEXT NOT NULL
             )""")
-            db.execute("""CREATE TABLE IF NOT EXISTS audit_events (
+                db.execute("""CREATE TABLE IF NOT EXISTS audit_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL,
                 action TEXT NOT NULL, status TEXT NOT NULL, details TEXT NOT NULL
             )""")
+                db.execute("""CREATE TABLE IF NOT EXISTS configuration (
+                id INTEGER PRIMARY KEY CHECK (id = 1), payload TEXT NOT NULL
+            )""")
+                db.execute("PRAGMA user_version = 2")
+        except sqlite3.DatabaseError as exc:
+            raise StorageError("База данных недоступна или повреждена; проверьте файл и права") from exc
 
     @contextmanager
     def _connect(self):
-        db = sqlite3.connect(self.path)
+        try:
+            db = sqlite3.connect(self.path, timeout=10)
+        except sqlite3.DatabaseError as exc:
+            raise StorageError("Не удалось открыть базу данных") from exc
         try:
             with db:
+                db.execute("PRAGMA busy_timeout=10000")
                 yield db
+        except sqlite3.DatabaseError as exc:
+            raise StorageError("Ошибка чтения или записи базы данных") from exc
         finally:
             db.close()
 
@@ -74,3 +95,14 @@ class Storage:
                              (action, status, status)).fetchone()
         return {"occurred_at": row[0], "action": row[1], "status": row[2],
                 "details": json.loads(row[3])} if row else None
+
+    def get_config(self) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute("SELECT payload FROM configuration WHERE id = 1").fetchone()
+        return json.loads(row[0]) if row else None
+
+    def save_config(self, payload: dict[str, Any]) -> None:
+        with self._connect() as db:
+            db.execute("INSERT INTO configuration (id, payload) VALUES (1, ?) "
+                       "ON CONFLICT(id) DO UPDATE SET payload = excluded.payload",
+                       (json.dumps(payload, ensure_ascii=False),))

@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import Settings
-from .models import Account, Group, Snapshot
+from .interactive import InteractiveLogonCollector
+from .models import Account, Computer, Group, Snapshot
 
 
 class CollectorError(Exception):
@@ -63,6 +64,9 @@ def _int(value, default=0):
 
 def _date(value) -> str | None:
     if isinstance(value, datetime):
+        # ldap3 may decode AD FILETIME=0 as the 1601 epoch datetime.
+        if value.year <= 1601 or value.year >= 9999:
+            return None
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc).isoformat()
@@ -81,6 +85,41 @@ def _first_rdn(dn: str) -> str:
     return dn.split(",", 1)[0].split("=", 1)[-1]
 
 
+def _delegation(attrs: dict, flags: int) -> dict:
+    targets = _list(attrs.get("msDS-AllowedToDelegateTo"))
+    rbcd = bool(attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity"))
+    return {
+        "unconstrained": bool(flags & 0x80000),
+        "constrained_targets": targets,
+        "protocol_transition": bool(flags & 0x1000000),
+        "rbcd_configured": rbcd,
+    }
+
+
+def _policy_row(attrs: dict, dn: str) -> dict:
+    def days(key):
+        seconds = _ad_interval_seconds(attrs.get(key))
+        return None if seconds is None else seconds // 86400
+
+    def minutes(key):
+        seconds = _ad_interval_seconds(attrs.get(key))
+        return None if seconds is None else seconds // 60
+
+    return {
+        "name": str(attrs.get("cn") or _first_rdn(dn)), "distinguished_name": dn,
+        "precedence": _int(attrs.get("msDS-PasswordSettingsPrecedence"), None),
+        "applies_to": _list(attrs.get("msDS-PSOAppliesTo")),
+        "min_password_length": _int(attrs.get("msDS-MinimumPasswordLength"), None),
+        "password_history_count": _int(attrs.get("msDS-PasswordHistoryLength"), None),
+        "password_complexity": attrs.get("msDS-PasswordComplexityEnabled"),
+        "max_password_age_days": days("msDS-MaximumPasswordAge"),
+        "min_password_age_days": days("msDS-MinimumPasswordAge"),
+        "lockout_threshold": _int(attrs.get("msDS-LockoutThreshold"), None),
+        "lockout_duration_minutes": minutes("msDS-LockoutDuration"),
+        "lockout_observation_minutes": minutes("msDS-LockoutObservationWindow"),
+    }
+
+
 def _ad_interval_seconds(value) -> int | None:
     """AD password policy intervals are signed 100 ns ticks (usually negative)."""
     if isinstance(value, timedelta):
@@ -95,6 +134,9 @@ def _ad_interval_seconds(value) -> int | None:
 
 def collect_ldap(settings: Settings) -> Snapshot:
     bind_password = settings.ldap_password
+    allowed_owner_attrs = {"managedBy", "manager"} | {f"extensionAttribute{i}" for i in range(1, 16)}
+    if settings.owner_attribute not in allowed_owner_attrs:
+        raise CollectorError("OWNER_ATTRIBUTE должен быть managedBy, manager или extensionAttribute1..15")
     if not all([settings.ldap_host, settings.ldap_base_dn, settings.ldap_username, bind_password]):
         raise CollectorError("Укажите LDAP_HOST, LDAP_BASE_DN, LDAP_USERNAME и LDAP_PASSWORD в окружении backend")
     try:
@@ -119,13 +161,40 @@ def collect_ldap(settings: Settings) -> Snapshot:
                     "userPrincipalName", "displayName", "whenCreated", "primaryGroupID", "adminCount",
                     "description", "department", "userAccountControl", "lastLogonTimestamp",
                     "pwdLastSet", "accountExpires", "lockoutTime", "memberOf",
-                    "servicePrincipalName", "managedBy", "msDS-User-Account-Control-Computed",
+                    "servicePrincipalName", settings.owner_attribute, "msDS-User-Account-Control-Computed",
+                    "objectClass", "lastLogon", "logonCount", "sIDHistory",
+                    "msDS-ResultantPSO", "msDS-AllowedToDelegateTo",
+                    "msDS-AllowedToActOnBehalfOfOtherIdentity",
                 ],
                 paged_size=500, generator=True,
             ))
             groups_raw = list(connection.extend.standard.paged_search(
                 settings.ldap_base_dn, "(objectClass=group)", search_scope=SUBTREE,
                 attributes=["objectGUID", "objectSid", "distinguishedName", "sAMAccountName", "memberOf"],
+                paged_size=500, generator=True,
+            ))
+            computers_raw = list(connection.extend.standard.paged_search(
+                settings.ldap_base_dn, "(objectClass=computer)", search_scope=SUBTREE,
+                attributes=["distinguishedName", "sAMAccountName", "dNSHostName", "userAccountControl",
+                            "lastLogonTimestamp", "pwdLastSet", "operatingSystem", "whenCreated",
+                            "servicePrincipalName", "sIDHistory", "msDS-AllowedToDelegateTo",
+                            "msDS-AllowedToActOnBehalfOfOtherIdentity"],
+                paged_size=500, generator=True,
+            ))
+            pso_raw = list(connection.extend.standard.paged_search(
+                settings.ldap_base_dn, "(objectClass=msDS-PasswordSettings)", search_scope=SUBTREE,
+                attributes=["cn", "distinguishedName", "msDS-PasswordSettingsPrecedence",
+                            "msDS-PSOAppliesTo", "msDS-MinimumPasswordLength",
+                            "msDS-PasswordHistoryLength", "msDS-PasswordComplexityEnabled",
+                            "msDS-MaximumPasswordAge", "msDS-MinimumPasswordAge",
+                            "msDS-LockoutThreshold", "msDS-LockoutDuration",
+                            "msDS-LockoutObservationWindow"],
+                paged_size=500, generator=True,
+            ))
+            spn_raw = list(connection.extend.standard.paged_search(
+                settings.ldap_base_dn, "(&(servicePrincipalName=*)(|(objectClass=user)(objectClass=computer)))",
+                search_scope=SUBTREE,
+                attributes=["distinguishedName", "sAMAccountName", "servicePrincipalName"],
                 paged_size=500, generator=True,
             ))
             policy_attrs = ["minPwdLength", "pwdProperties", "lockoutThreshold",
@@ -179,7 +248,8 @@ def collect_ldap(settings: Settings) -> Snapshot:
     for row in users:
         if row.get("type") != "searchResEntry":
             continue
-        attrs = {key: value if key in ("memberOf", "servicePrincipalName") else _scalar(value)
+        attrs = {key: value if key in ("memberOf", "servicePrincipalName", "objectClass",
+                                      "sIDHistory", "msDS-AllowedToDelegateTo") else _scalar(value)
                  for key, value in row["attributes"].items()}
         username = str(attrs.get("sAMAccountName") or "")
         if not username:
@@ -189,9 +259,12 @@ def collect_ldap(settings: Settings) -> Snapshot:
         computed = _int(attrs.get("msDS-User-Account-Control-Computed"))
         expire_at = _date(attrs.get("accountExpires"))
         last_logon = _date(attrs.get("lastLogonTimestamp"))
+        exact_last_logon = _date(attrs.get("lastLogon"))
+        logon_count = _int(attrs.get("logonCount"), None)
         password_set = _date(attrs.get("pwdLastSet"))
+        password_must_change = attrs.get("pwdLastSet") in (0, "0")
         spns = _list(attrs.get("servicePrincipalName"))
-        managed_by = str(attrs.get("managedBy") or "")
+        owner_raw = str(attrs.get(settings.owner_attribute) or "")
         service_markers = []
         if spns:
             service_markers.append("SPN")
@@ -199,6 +272,11 @@ def collect_ldap(settings: Settings) -> Snapshot:
             service_markers.append("префикс имени")
         if "ou=service accounts" in dn.lower():
             service_markers.append("OU Service Accounts")
+        object_classes = {item.lower() for item in _list(attrs.get("objectClass"))}
+        if "msds-groupmanagedserviceaccount" in object_classes:
+            service_markers.append("gMSA")
+        elif "msds-managedserviceaccount" in object_classes:
+            service_markers.append("MSA")
         sid = str(attrs.get("objectSid") or "")
         primary_group_id = _int(attrs.get("primaryGroupID")) or None
         direct_groups = [group_by_dn.get(name.lower(), name) for name in _list(attrs.get("memberOf"))]
@@ -219,12 +297,64 @@ def collect_ldap(settings: Settings) -> Snapshot:
             enabled=not bool(flags & 0x2),
             locked=bool(computed & 0x10),
             account_expired=bool(expire_at and datetime.fromisoformat(expire_at) < now),
+            account_expires_at=expire_at,
             last_logon=last_logon, password_last_set=password_set,
+            exact_last_logon=exact_last_logon, logon_count=logon_count,
+            activity_status="last_activity" if last_logon or exact_last_logon else "never_observed",
+            password_must_change=password_must_change,
             password_never_expires=bool(flags & 0x10000),
             password_not_required=bool(flags & 0x20),
             service_account=bool(service_markers), service_reason=", ".join(service_markers),
-            owner=_first_rdn(managed_by) if managed_by else None,
+            service_detection_reasons=service_markers,
+            owner=(_first_rdn(owner_raw) if settings.owner_attribute in ("managedBy", "manager")
+                   else owner_raw) if owner_raw else None,
+            owner_attribute=settings.owner_attribute,
+            sid_history=_list(attrs.get("sIDHistory")),
+            delegation=_delegation(attrs, flags),
+            resultant_pso_dn=str(attrs.get("msDS-ResultantPSO") or "") or None,
             groups=direct_groups,
             spns=spns,
         ))
-    return Snapshot(source="ldap", accounts=accounts, groups=groups, domain_policy=policy)
+    computers = []
+    for row in computers_raw:
+        if row.get("type") != "searchResEntry":
+            continue
+        attrs = {key: value if key in ("servicePrincipalName", "sIDHistory", "msDS-AllowedToDelegateTo")
+                 else _scalar(value) for key, value in row["attributes"].items()}
+        dn = str(attrs.get("distinguishedName") or row.get("dn") or "")
+        flags = _int(attrs.get("userAccountControl"))
+        computers.append(Computer(
+            id=dn.lower(), name=str(attrs.get("sAMAccountName") or _first_rdn(dn)),
+            distinguished_name=dn, dns_hostname=str(attrs.get("dNSHostName") or ""),
+            enabled=not bool(flags & 0x2), last_logon=_date(attrs.get("lastLogonTimestamp")),
+            password_last_set=_date(attrs.get("pwdLastSet")),
+            operating_system=str(attrs.get("operatingSystem") or ""),
+            when_created=_date(attrs.get("whenCreated")),
+            spns=_list(attrs.get("servicePrincipalName")),
+            sid_history=_list(attrs.get("sIDHistory")), delegation=_delegation(attrs, flags),
+        ))
+    psos = []
+    for row in pso_raw:
+        if row.get("type") != "searchResEntry":
+            continue
+        attrs = {key: value if key == "msDS-PSOAppliesTo" else _scalar(value)
+                 for key, value in row["attributes"].items()}
+        psos.append(_policy_row(attrs, str(attrs.get("distinguishedName") or row.get("dn") or "")))
+    spn_owners = []
+    for row in spn_raw:
+        if row.get("type") != "searchResEntry":
+            continue
+        attrs = row["attributes"]
+        spn_owners.append({"name": str(_scalar(attrs.get("sAMAccountName")) or ""),
+                           "distinguished_name": str(_scalar(attrs.get("distinguishedName")) or row.get("dn") or ""),
+                           "spns": _list(attrs.get("servicePrincipalName"))})
+    policy_snapshot, interactive_status = InteractiveLogonCollector(settings.interactive_policy_path).load()
+    for account in accounts:
+        if account.service_account:
+            account.interactive_logon = InteractiveLogonCollector.evaluate(
+                account, policy_snapshot, interactive_status)
+    return Snapshot(source="ldap", accounts=accounts, groups=groups, domain_policy=policy,
+                    computers=computers, fine_grained_policies=psos, spn_owners=spn_owners,
+                    source_status={"ldap": "pass", "fine_grained_policies": "pass",
+                                   "computers": "pass", "spn_inventory": "pass",
+                                   "interactive_rights": interactive_status})

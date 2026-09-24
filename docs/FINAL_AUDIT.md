@@ -1,49 +1,51 @@
-# Identity Risk Analyzer — Final Audit
+# Identity Risk Analyzer — финальный продуктовый аудит
 
-Дата: 2026-09-24. Исходное ТЗ: `Техническое задание Hackathon Infrastructure_Risk_Radar.docx`, раздел 2 и связанные требования разделов 4–6. Подробные статусы: `docs/TZ_COMPLIANCE.md`.
+Дата: 2026-09-24. Основание: оригинальный DOCX ТЗ, полный разбор кода и live `infraradar.test`. Git checkpoint утверждённого frontend: `daeb4e1`. Подробная матрица: `docs/TZ_COMPLIANCE.md`. Работа над demo/presentation не выполнялась.
 
-## Compliance with Hackathon TZ
+## Соответствие ТЗ
 
-Обязательный MVP (ТЗ 2.8): **8 / 8 PASS**. Дополнительные возможности ТЗ 2.3.5/2.9/6: **2 / 9 реализованы** (история оценки и пояснения рисков); расширяемость частичная, шесть дополнительных проверок/уведомлений не реализованы. Основные функциональные требования: 33 PASS, 12 PARTIAL, 1 MISSING, 3 условных/дополнительных. Единственный MISSING — подтверждение разрешённого интерактивного входа сервисного аккаунта на целевых машинах; UI/API честно показывают `not_evaluated`.
+- Обязательный MVP: **8/8 PASS**.
+- Основные функции и дополнительные AD/auth проверки в текущей расширенной матрице: **17 PASS, 18 PARTIAL, 0 MISSING, 1 OPTIONAL**. Это новый подробный набор строк, не сопоставимый по количеству со старой матрицей.
+- Продукт/безопасность/устойчивость: **12 PASS, 3 PARTIAL**.
+- Положительные live случаи не создавались для старого пароля, старого входа, SIDHistory, SPN duplication, delegation, слабой FGPP и аутентификационных атак. Их реализация проверена unit-тестами и честно оставлена PARTIAL в live статусе.
 
-## Live environment
+## Текущий стенд и live scan
 
-- Domain: `infraradar.test`; DC: `INFRARADAR-DC01.infraradar.test` (`100.93.42.103` через Tailscale).
-- Windows host `DANIKEK` (`100.126.179.32`), VM `InfraRadar-DC01` запущена. На DC службы NTDS и DNS — Running; DNS домена разрешается в адреса DC.
-- LDAP: `100.93.42.103:389` через Tailscale, `ir-ldap-reader@infraradar.test`; PowerShell подтверждает членство reader только в `Domain Users`.
-- Scope: 30 пользователей в `OU=InfraRadarLab`, 57 групп для разрешения путей членства (9 групп в тестовой OU). Backend не использует Administrator.
+Windows-хост `DANIKEK` через Tailscale `100.126.179.32`; VM `InfraRadar-DC01` запущена. DC `INFRARADAR-DC01.infraradar.test` через Tailscale `100.93.42.103`; домен `infraradar.test`. LDAP `100.93.42.103:389` под `ir-ldap-reader@infraradar.test`. PowerShell проверил: reader не имеет прямых дополнительных `MemberOf` (обычная primary group Domain Users). Обычный backend scan не применяет Administrator.
 
-## Live scan
+После перезапуска backend live scan `14898df0-5a9a-469f-a40c-5868fe4c2507`: **31 lab user, 57 groups, 1 computer, 1 FGPP, 42 findings**, Critical **1**, High **26**, Medium **9**, Low **6**, AD Security Score **65/100**, 190 мс. Состояние источников: LDAP/FGPP/computer/SPN/interactive rights = `pass`; Security Event Log = `not_evaluated`. Повторный scan без изменений AD: 0 добавленных findings. SQLite schema version 2 содержит этот scan; API details, Dashboard, Checks, CSV 42 строки с UTF-8 BOM проверены.
 
-Финальный scan после рестарта `e9ee7f91-65d2-419e-bd85-12dd4fa0f056`: AD Security Score **62/100**, Critical **1**, High **26**, Medium **9**, Low **6**, всего **42** находки, длительность **154 мс**. Проверено 30 пользователей, 57 групп. Это результат настоящего LDAP scan, сохранённый в SQLite и доступный через Dashboard/API/CSV. Повторный scan без изменений AD дал 0 новых и 0 исчезнувших находок.
+Путь `ir-domainadmin → Domain Admins` подтверждён как Critical. Делегирование `IR-Lab-Admins` относится только к `OU=InfraRadarLab` и было сверено с ACL lab OU, поэтому вложенный путь `ir-svc-backup` оценивается как High, а не Domain Admin. Доменная политика прочитана полностью: min length 0, complexity on, history 0, max age 42d, min age 0, lockout threshold 0. Длительность при нулевом threshold не считается защитой.
 
-Проверка Critical: `ir-domainadmin` имеет подтверждённое прямое членство в `Domain Admins` (PowerShell `Get-ADUser -Properties MemberOf`) и отдельное членство в `IR-Lab-Admins`. API показал Critical. Для `ir-svc-backup` API показал вложенный путь к `IR-Lab-Admins`, severity High и область **только test OU**. `Get-Acl AD:\OU=InfraRadarLab,...` подтвердил GenericAll именно на lab OU.
+## Новые проверки и доказательства
 
-Доменная политика LDAP сверена с `Get-ADDefaultDomainPasswordPolicy`: длина 0, сложность включена, история 0, max age 42 дня, min age 0, lockout threshold 0, duration 30 минут, observation window 30 минут. При нулевом пороге длительность блокировки фактически не применяется.
+| Проверка | Код / тест | Live результат |
+|---|---|---|
+| Interactive service logon | `InteractiveLogonCollector`, merged secedit rights, полный token SID, deny precedence | Снимок DC для 7 lab service users: все `pass`, права local/RDP не разрешены; позитивный finding UNIT VERIFIED, другие хосты NOT EVALUATED |
+| Lockout | `LOCKED_ACCOUNT`, отдельный lab seed | `ir-lockout-lab` действительно заблокирован после 3 неверных bind; LDAP/PowerShell/finding подтвердили; затем разблокирован, сейчас `LockedOut=false` |
+| FGPP | PSO inventory и `msDS-ResultantPSO` | `IR-Lab-Lockout-PSO`, 8 полей; PowerShell `Get-ADUserResultantPasswordPolicy` подтвердил threshold 3 для lab user |
+| Computers | LDAP inventory, inactive rule, UI | 1 активный DC; положительный inactive finding UNIT VERIFIED |
+| SIDHistory | read-only attribute, rule | 0 live значений; положительный случай UNIT VERIFIED |
+| SPN duplicate | domain-wide SPN owner map, rule | 9 live владельцев, дублей нет; положительный случай UNIT VERIFIED |
+| Kerberos delegation | unconstrained/constrained/RBCD rules | Live атрибуты прочитаны, lab находок нет; три позитивных случая UNIT VERIFIED; ожидаемый DC default исключён |
+| Security Event Log | отдельный SSH collector, события 4624/4625/4771/4776 | Одноразовая read-only диагностика под Administrator: 1349 raw / 771 normalized за 24 ч, 49 bad-password failures, 0 консервативных brute/spray кандидатов. Это **не** обычный backend scan. Отдельный минимальный reader не настроен → backend `not_evaluated` |
+| Brute force / spray | конфигурируемые окна, sources, usernames, дедупликация | UNIT VERIFIED; live положительных атак не наблюдалось |
 
-## Implemented risk checks
+PSO по схеме AD хранится в `CN=Password Settings Container,CN=System`, вне lab OU, но применён **только** к одному lab user; `GenericRead` reader выдан только этому PSO объекту. Другие политики, системные аккаунты и доменная политика не менялись. Созданный lab user остаётся, но разблокирован. Ручной экспорт прав DC использовал диагностический SSH Administrator вне backend и сохранил только локальный игнорируемый JSON снимок с mode 600. Снимок действует 60 минут, затем результат интерактивных прав станет `not_evaluated`, пока экспорт не повторён.
 
-`DISABLED_ACCOUNT`, `INACTIVE_ACCOUNT`, `EXPIRED_ACCOUNT`, `LOCKED_ACCOUNT`, `PASSWORD_NEVER_EXPIRES`, `SERVICE_PASSWORD_NEVER_EXPIRES`, `OLD_PASSWORD`, `PASSWORD_NOT_REQUIRED`, `DIRECT_PRIVILEGE`, `NESTED_PRIVILEGE`, `DISABLED_PRIVILEGED`, `INACTIVE_PRIVILEGED`, `MULTIPLE_PRIVILEGES`, `SERVICE_PRIVILEGED`, `INACTIVE_SERVICE`, `MISSING_OWNER`, `SHORT_MIN_PASSWORD`, `NO_PASSWORD_COMPLEXITY`, `NO_LOCKOUT`.
+## Frontend и API
 
-Старый вход и старый пароль проверены unit-тестами, но не заявляются как live-находки: защищённые AD timestamps не подделывались. Определение service account основано на SPN, имени или OU и остаётся эвристикой. Security Event Log не собирается, поэтому Password Spray и Brute Force не заявляются.
+Утверждённый визуальный стиль, Dashboard/Risks/Accounts/Domain Policy/Connection сохранены. Добавлены поля в существующие панели, FGPP, настройки порогов, разделы Computers и Authentication. Старые API запросы и новые `/api/computers`, `/api/authentication`, `/api/checks`, `/api/config`, account/computer detail, CSV отработали после backend restart. Frontend build **PASS**. Chrome headless открыл семь страниц и карточку аккаунта на 1440/390 px без React exceptions и горизонтального переполнения; поиск Accounts/Risks проверен. Пустые/error/form состояния и открытие CSV в Excel **NOT VERIFIED**.
 
-## Security
+## Тесты, устойчивость и безопасность
 
-Collector выполняет только LDAP bind/search по белому списку атрибутов. У backend нет API изменения AD; seed script отделён и ограничен тестовой OU. Пользовательские пароли не читаются, не входят в SQLite, API или CSV. LDAP bind secret хранится локально в игнорируемом `backend/.env` с правами `600`, не записывается в application audit. Аудит в SQLite фиксирует тест соединения, начало/завершение/ошибку scan, экспорт и изменение порогов анализа. Приложение слушает только `127.0.0.1`, LDAP ходит по Tailscale; публичные порты не открывались.
+`RUN_LDAP_SMOKE=1 .venv/bin/python -m unittest discover -s tests -v`: **27/27 PASS**. Есть тесты scoring и границ, nested cycles, новых правил, event эвристик, interactive allow/deny/unknown, FGPP/computer, config validation/persistence, corrupt DB, atomic writes, concurrent scans и live read-only LDAP. SQLite WAL, `user_version=2`, транзакционная запись и audit событий работают. Scan timing разделён на LDAP, event collection, analysis, persistence и total.
 
-## Tests
+Code review: API не имеет AD write; обычный LDAP reader не администратор; пользовательские пароли не запрашиваются в LDAP и не выводятся в API/CSV/audit; `backend/.env` игнорируется Git и имеет mode 600. Приложение слушает `127.0.0.1`, удалённый доступ идёт через Tailscale. Новые lab скрипты запускаются отдельно, не как часть scan. Security Event Log collector отказывает Administrator/административному токену, пока отдельный минимально привилегированный доступ не настроен.
 
-- Backend: **19/19 PASS** с `RUN_LDAP_SMOKE=1` (AD parsing, classification, group paths, scoring, API, storage, CSV, live LDAP).
-- Frontend: **PASS**, `npm run build`.
-- Live LDAP: **PASS**, reader прочитал 30 users / 57 groups и полную доменную политику.
-- E2E: **PASS**, LDAP → analysis → SQLite → API/Dashboard → account detail → CSV (42 UTF-8 BOM строк, русские символы, category/evidence/recommendation).
-- Restart: **PASS**, после перезапуска сохранились scan, Dashboard и audit; новый post-restart LDAP scan, account detail и CSV прошли; UI отдаётся на `127.0.0.1:8000`.
-- Visual: инструмент браузера недоступен; build и HTTP отдача проверены, ручной список в `docs/VISUAL_CHECKLIST.md`.
+## Оставшиеся реальные ограничения
 
-## Remaining limitations
-
-Фактическое разрешение интерактивного входа сервисных аккаунтов требует результирующих GPO и allow/deny прав на каждом целевом Windows-хосте. Fine-Grained Password Policies, события аутентификации для spray/bruteforce, inactive computers, SIDHistory, SPN/delegation и уведомления не входят в текущую проверенную реализацию. Нет авторизации веб-приложения: использовать только локально в лаборатории. Визуальная проверка в браузере остаётся ручной.
-
-## Demo readiness
-
-**READY для локальной защиты по 3–4-минутному сценарию** `docs/DEMO_SCRIPT.md` с честным показом ограничений. Перед выступлением выполните `docs/VISUAL_CHECKLIST.md` на целевом экране.
+1. Для постоянного Event Log сбора нужна отдельная неадминистративная учётная запись с SSH и правом чтения Security log на DC. Изменения встроенных групп/политик ради этого не выполнялись.
+2. Interactive rights подтверждены только на DC и только как права local/RDP входа; состояние RDP службы и все дополнительные ограничения фактической аутентификации не проверены. Положительный live сервисный сценарий не создавался из-за необходимости менять политику DC/хоста.
+3. Старые logon/password сценарии и SIDHistory/SPN/delegation имеют unit положительные тесты, но нет корректного положительного live объекта. Защищённые timestamps не подделывались.
+4. Веб-приложение без собственной авторизации и предназначено для локального lab запуска. Основные страницы визуально проверены в Chrome headless; пустые/error/form сценарии остаются непроверенными.

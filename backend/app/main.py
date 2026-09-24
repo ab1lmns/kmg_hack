@@ -9,15 +9,16 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .analysis import analyze
 from .collectors import CollectorError, collect_demo, collect_ldap
+from .events import WindowsEventCollector
 from .config import settings
-from .storage import Storage
+from .storage import Storage, StorageError
 
 
 logging.basicConfig(level=logging.INFO)
@@ -25,10 +26,35 @@ logger = logging.getLogger("radar")
 storage = Storage(settings.db_path)
 
 
-class ScanRequest(BaseModel):
-    source: Literal["demo", "ldap"] = "ldap" if settings.ldap_host else "demo"
+class AnalysisConfig(BaseModel):
     inactive_days: int = Field(default=settings.inactive_days, ge=1, le=3650)
     old_password_days: int = Field(default=settings.old_password_days, ge=1, le=3650)
+    inactive_computer_days: int = Field(default=settings.inactive_computer_days, ge=1, le=3650)
+    brute_attempts: int = Field(default=settings.brute_attempts, ge=2, le=1000)
+    spray_unique_users: int = Field(default=settings.spray_unique_users, ge=3, le=1000)
+    auth_window_minutes: int = Field(default=settings.auth_window_minutes, ge=1, le=1440)
+    risk_medium_threshold: int = Field(default=settings.risk_medium_threshold, ge=10, le=98)
+    risk_high_threshold: int = Field(default=settings.risk_high_threshold, ge=11, le=99)
+    risk_critical_threshold: int = Field(default=settings.risk_critical_threshold, ge=12, le=100)
+
+    @model_validator(mode="after")
+    def ordered_thresholds(self):
+        if not self.risk_medium_threshold < self.risk_high_threshold < self.risk_critical_threshold:
+            raise ValueError("Risk thresholds must satisfy Medium < High < Critical")
+        return self
+
+
+class ScanRequest(BaseModel):
+    source: Literal["demo", "ldap"] = "ldap" if settings.ldap_host else "demo"
+    inactive_days: int | None = Field(default=None, ge=1, le=3650)
+    old_password_days: int | None = Field(default=None, ge=1, le=3650)
+    inactive_computer_days: int | None = Field(default=None, ge=1, le=3650)
+    brute_attempts: int | None = Field(default=None, ge=2, le=1000)
+    spray_unique_users: int | None = Field(default=None, ge=3, le=1000)
+    auth_window_minutes: int | None = Field(default=None, ge=1, le=1440)
+    risk_medium_threshold: int | None = Field(default=None, ge=10, le=98)
+    risk_high_threshold: int | None = Field(default=None, ge=11, le=99)
+    risk_critical_threshold: int | None = Field(default=None, ge=12, le=100)
 
 
 @asynccontextmanager
@@ -41,7 +67,13 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Identity Risk Analyzer API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
-                   allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
+                   allow_credentials=False, allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type"])
+
+
+@app.exception_handler(StorageError)
+def storage_failure(_request, _exc):
+    logger.error("Storage operation failed")
+    return JSONResponse(status_code=503, content={"detail": "База данных временно недоступна. Проверьте файл и повторите попытку."})
 
 
 def latest_or_404():
@@ -54,6 +86,21 @@ def latest_or_404():
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/config")
+def get_config():
+    return AnalysisConfig(**(storage.get_config() or {})).model_dump()
+
+
+@app.put("/api/config")
+def update_config(config: AnalysisConfig):
+    old = storage.get_config()
+    payload = config.model_dump()
+    storage.save_config(payload)
+    if old != payload:
+        storage.audit("analysis_config", "changed", payload)
+    return payload
 
 
 @app.get("/api/connection/status")
@@ -94,18 +141,38 @@ def test_connection():
 @app.post("/api/scans")
 def create_scan(request: ScanRequest):
     started = time.perf_counter()
-    previous = storage.latest()
-    requested_thresholds = {"inactive_days": request.inactive_days,
-                            "old_password_days": request.old_password_days}
-    if previous and previous.get("thresholds") != requested_thresholds:
-        storage.audit("analysis_config", "changed", requested_thresholds)
+    overrides = request.model_dump(exclude_none=True, exclude={"source"})
+    config = AnalysisConfig(**{**(storage.get_config() or {}), **overrides})
     storage.audit("scan", "started", {"source": request.source})
     try:
         snapshot = collect_demo() if request.source == "demo" else collect_ldap(settings)
-        result = analyze(snapshot, request.inactive_days, request.old_password_days,
-                         {group.lower() for group in settings.critical_groups}, settings.risk_thresholds)
+        collection_ms = round((time.perf_counter() - started) * 1000)
+        event_started = time.perf_counter()
+        if request.source == "ldap":
+            events, event_status = WindowsEventCollector(settings.event_ssh_alias or None,
+                settings.event_ssh_user or None,
+                Path(__file__).resolve().parents[2] / "scripts" / "Export-SecurityEvents.ps1").collect()
+            snapshot.auth_events = events
+            snapshot.source_status["security_event_log"] = event_status
+            storage.audit("event_collection", event_status, {"events": len(events)})
+        events_ms = round((time.perf_counter() - event_started) * 1000)
+        analysis_started = time.perf_counter()
+        result = analyze(snapshot, config.inactive_days, config.old_password_days,
+                         {group.lower() for group in settings.critical_groups},
+                         (config.risk_medium_threshold, config.risk_high_threshold,
+                          config.risk_critical_threshold),
+                         config.inactive_computer_days, config.brute_attempts,
+                         config.spray_unique_users, config.auth_window_minutes)
+        analysis_ms = round((time.perf_counter() - analysis_started) * 1000)
+        if request.source == "ldap":
+            storage.audit("authentication_analysis", "completed" if event_status == "pass" else event_status,
+                          {"findings": len(result["auth_findings"])})
         result["duration_ms"] = round((time.perf_counter() - started) * 1000)
+        result["timings_ms"] = {"ldap_and_ad_collection": collection_ms,
+                                "event_collection": events_ms, "analysis": analysis_ms}
+        persistence_started = time.perf_counter()
         scan_id = storage.save(result)
+        persistence_ms = round((time.perf_counter() - persistence_started) * 1000)
     except CollectorError as exc:
         storage.audit("scan", "failed", {"source": request.source, "error_type": type(exc).__name__})
         logger.warning("Scan collection failed: %s", exc)
@@ -115,14 +182,19 @@ def create_scan(request: ScanRequest):
         raise
     storage.audit("scan", "completed", {"scan_id": scan_id, "source": request.source,
         "users": result["summary"]["total_users"], "groups": len(result["groups"]),
-        "findings": result["summary"]["finding_count"], "duration_ms": result["duration_ms"]})
+        "computers": len(result.get("computers", [])),
+        "findings": result["summary"]["finding_count"],
+        "duration_ms": round((time.perf_counter() - started) * 1000),
+        "persistence_ms": persistence_ms})
     logger.info("Scan %s completed: %s users, %s findings", scan_id,
                 result["summary"]["total_users"], result["summary"]["finding_count"])
     return {"scan_id": scan_id, "status": "completed", "source": request.source,
             "users_scanned": result["summary"]["total_users"],
             "groups_scanned": len(result["groups"]),
+            "computers_scanned": len(result.get("computers", [])),
             "findings_found": result["summary"]["finding_count"],
-            "duration_ms": result["duration_ms"]}
+            "duration_ms": round((time.perf_counter() - started) * 1000),
+            "timings_ms": {**result["timings_ms"], "persistence": persistence_ms}}
 
 
 @app.post("/api/scans/demo")
@@ -172,10 +244,14 @@ def dashboard():
     result = latest_or_404()
     return {"scan_id": result["scan_id"], "source": result["source"],
             "scanned_at": result["scanned_at"], "duration_ms": result.get("duration_ms"),
+            "timings_ms": result.get("timings_ms", {}),
             "thresholds": result["thresholds"],
             "domain_policy": result["domain_policy"],
             "domain_policy_risk_score": result.get("domain_policy_risk_score", 0),
-            "domain_policy_findings": result.get("domain_policy_findings", []), **result["summary"]}
+            "domain_policy_findings": result.get("domain_policy_findings", []),
+            "fine_grained_policies": result.get("fine_grained_policies", []),
+            "fine_grained_policy_findings": result.get("fine_grained_policy_findings", []),
+            "source_status": result.get("source_status", {}), **result["summary"]}
 
 
 @app.get("/api/findings")
@@ -203,6 +279,38 @@ def groups():
     return latest_or_404().get("groups", [])
 
 
+@app.get("/api/computers")
+def computers():
+    return [{key: value for key, value in item.items() if key != "findings"}
+            for item in latest_or_404().get("computers", [])]
+
+
+@app.get("/api/computers/{computer_id:path}")
+def computer(computer_id: str):
+    for item in latest_or_404().get("computers", []):
+        if item["id"] == computer_id:
+            return item
+    raise HTTPException(404, "Компьютер не найден")
+
+
+@app.get("/api/authentication")
+def authentication():
+    result = latest_or_404()
+    return {"status": result.get("source_status", {}).get("security_event_log", "not_evaluated"),
+            "events": result["summary"].get("auth_events", 0),
+            "failed_bad_password": result["summary"].get("failed_auth_events", 0),
+            "findings": result.get("auth_findings", [])}
+
+
+@app.get("/api/checks")
+def checks():
+    result = latest_or_404()
+    return {"sources": result.get("source_status", {}),
+            "interactive_logon": [{"username": row["username"],
+                                   "result": row.get("interactive_logon")}
+                                  for row in result["accounts"] if row.get("service_account")]}
+
+
 @app.get("/api/accounts/{account_id:path}")
 @app.get("/api/users/{account_id:path}")
 def account(account_id: str):
@@ -220,16 +328,18 @@ def export_csv():
     def safe_cell(value):
         text = str(value)
         return "'" + text if text.lstrip().startswith(("=", "+", "-", "@")) else text
-    writer.writerow(["Scan Date", "Source", "Account", "Account Type", "Severity",
-                     "Risk Score", "Category", "Rule", "Reason", "Why It Matters", "Evidence", "Recommendation"])
-    scores = {item["id"]: item["risk_score"] for item in result["accounts"]}
+    writer.writerow(["Scan Date", "Source", "Object", "Object Type", "Severity",
+                     "Risk Score", "Category", "Rule", "Reason", "Why It Matters", "Evidence",
+                     "Recommendation", "Evaluation Status", "Confidence"])
+    scores = {item["id"]: item["risk_score"] for item in result["accounts"] + result.get("computers", [])}
     scores["__domain__"] = result.get("domain_policy_risk_score", 0)
     for item in result["findings"]:
-        writer.writerow([safe_cell(value) for value in [result["scanned_at"], result["source"], item["username"],
+        writer.writerow([safe_cell(value) for value in [result["scanned_at"], item.get("source", result["source"]), item["username"],
             item["account_type"], item["severity"], scores.get(item["account_id"], 0),
             item.get("category", ""), item["title"], item["reason"], item.get("why_it_matters", ""),
             json.dumps(item.get("evidence", {}), ensure_ascii=False),
-            item["recommendation"]]])
+            item["recommendation"], item.get("evaluation_status", "finding"),
+            item.get("confidence", "high")]])
     data = "\ufeff" + output.getvalue()
     storage.audit("export_csv", "completed", {"scan_id": result["scan_id"],
         "findings": len(result["findings"])})
