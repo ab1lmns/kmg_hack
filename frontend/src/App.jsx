@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from './api.js'
+import { api, downloadCsv, setAccessToken } from './api.js'
 
 const severityLabels = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', safe: 'Без риска' }
 const sourceLabels = { demo: 'Демо', ldap: 'Active Directory' }
@@ -183,6 +183,11 @@ function formatDate(date) { return date ? new Intl.DateTimeFormat('ru-RU', { day
 function daysAgo(date) { return Math.max(0, Math.floor((Date.now() - new Date(date).getTime()) / 86400000)) }
 
 export default function App() {
+  const [auth, setAuth] = useState(null)
+  const [loginName, setLoginName] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [loggingIn, setLoggingIn] = useState(false)
   const [page, setRenderedPage] = useState('dashboard')
   const [targetPage, setTargetPage] = useState('dashboard')
   const [transition, setTransition] = useState('enter')
@@ -242,8 +247,29 @@ export default function App() {
     setThresholds(config)
   }, [])
 
-  useEffect(() => { refresh().catch(e => setError(e.message)).finally(() => setLoading(false)) }, [refresh])
+  useEffect(() => {
+    api('/auth/me').then(value => setAuth(value.auth_required ? 'login' : 'local'))
+      .catch(e => { setAuth('error'); setLoginError(e.message) })
+    const expired = () => { setAccessToken(null); setAuth('login'); setLoginError('Сессия истекла. Войдите снова.') }
+    window.addEventListener('radar-session-expired', expired)
+    return () => window.removeEventListener('radar-session-expired', expired)
+  }, [])
+  useEffect(() => { if (auth === 'local' || auth === 'signed-in') refresh().catch(e => setError(e.message)).finally(() => setLoading(false)) }, [auth, refresh])
   useEffect(() => { if (notice) { const timeout = setTimeout(() => setNotice(null), 5500); return () => clearTimeout(timeout) } }, [notice])
+
+  async function signIn(event) {
+    event.preventDefault()
+    setLoggingIn(true); setLoginError('')
+    try {
+      const result = await api('/auth/login', { method: 'POST', body: JSON.stringify({ username: loginName, password: loginPassword }) })
+      setAccessToken(result.token); setLoginPassword(''); setLoading(true); setAuth('signed-in')
+    } catch (e) { setLoginError(e.message) } finally { setLoggingIn(false) }
+  }
+
+  async function signOut() {
+    try { await api('/auth/logout', { method: 'POST' }) } catch { /* Session may already be expired. */ }
+    setAccessToken(null); setAuth('login'); setDashboard(null); setLoginPassword('')
+  }
 
   async function runScan() {
     setScanning(true); setScanStartedAt(new Date()); setError(null)
@@ -272,10 +298,14 @@ export default function App() {
   const detail = selectedAccount ? { ...selectedAccount, findings: findings.filter(item => item.account_id === accountId) } : null
   const nav = [{ key: 'dashboard', label: 'Обзор', icon: 'dashboard' }, { key: 'findings', label: 'Риски', icon: 'shield' }, { key: 'accounts', label: 'Аккаунты', icon: 'users' }, { key: 'computers', label: 'Компьютеры', icon: 'server' }, { key: 'policy', label: 'Политика домена', icon: 'shield' }, { key: 'authentication', label: 'Аутентификация', icon: 'shield' }, { key: 'settings', label: 'Подключение', icon: 'settings' }]
 
+  if (auth === null) return <div className="loading">Проверяем доступ…</div>
+  if (auth === 'error') return <div className="login-page"><section className="panel login-panel"><h1>Сервис недоступен</h1><p>{loginError}</p></section></div>
+  if (auth === 'login') return <div className="login-page"><form className="panel login-panel" onSubmit={signIn}><h1>Identity Risk</h1><p>Вход для участников команды</p><label>Логин<input autoComplete="username" value={loginName} onChange={e => setLoginName(e.target.value)} required/></label><label>Пароль<input type="password" autoComplete="current-password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} required/></label>{loginError && <p className="alert" role="alert">{loginError}</p>}<button className="primary-button" disabled={loggingIn}>{loggingIn ? 'Входим…' : 'Войти'}</button></form></div>
+
   return <div className="app-shell"><aside className="sidebar"><div className="brand"><div><strong>Identity Risk</strong><span>Security workspace</span></div></div><div className="nav-label">Рабочая область</div><nav aria-label="Основная навигация">{nav.map(item => <button key={item.key} onClick={() => setPage(item.key)} aria-current={targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'page' : undefined} className={`nav-link ${targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'active' : ''}`}><Icon name={item.icon} size={19}/><span>{item.label}</span></button>)}</nav><div className="sidebar-footer"><div className="sidebar-visual"><Icon name="shield" size={28}/><span>Видеть риски.<br/><strong>Защищать главное.</strong></span></div><div className="sidebar-bottom"><div><strong>{dashboard ? (dashboard.source === 'ldap' ? 'Active Directory' : 'Демо-режим') : 'Нет данных'}</strong><small>{dashboard ? 'Источник сканирования' : 'Ожидание сканирования'}</small></div><Icon name="server" size={18}/></div><div className="workspace-version">IDENTITY RISK RADAR <span>v0.1</span></div></div></aside>
-    <main className="main"><header className="topbar"><div className="breadcrumb">Рабочая область <span>/</span> <strong>{page === 'detail' ? 'Карточка аккаунта' : nav.find(item => item.key === page)?.label}</strong></div><div className="top-actions"><label className="source-select"><span>Источник</span><select value={source} onChange={e => setSource(e.target.value)}><option value="demo">Демо</option><option value="ldap" disabled={!connection?.configured}>Active Directory</option></select><Icon name="chevron" size={15}/></label><button className="scan-button" disabled={scanning || (source === 'ldap' && connection?.password_required)} onClick={runScan}><Icon name="refresh" size={17}/>{scanning ? 'Чтение AD и анализ…' : 'Запустить анализ'}</button></div></header>
+    <main className="main"><header className="topbar"><div className="breadcrumb">Рабочая область <span>/</span> <strong>{page === 'detail' ? 'Карточка аккаунта' : nav.find(item => item.key === page)?.label}</strong></div><div className="top-actions"><label className="source-select"><span>Источник</span><select value={source} onChange={e => setSource(e.target.value)}><option value="demo">Демо</option><option value="ldap" disabled={!connection?.configured}>Active Directory</option></select><Icon name="chevron" size={15}/></label><button className="scan-button" disabled={scanning || (source === 'ldap' && connection?.password_required)} onClick={runScan}><Icon name="refresh" size={17}/>{scanning ? 'Чтение AD и анализ…' : 'Запустить анализ'}</button>{auth === 'signed-in' && <button className="logout-button" onClick={signOut}>Выйти</button>}</div></header>
       <div className="content" style={{ '--page-direction': direction }}>{scanning && <div className="notice" role="status">Анализ запущен {scanStartedAt?.toLocaleTimeString('ru-RU')} · Идёт чтение каталога и расчёт рисков. Результат появится после завершения.</div>}{error && <div className="alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Закрыть">×</button></div>}{notice && <div className="notice" role="status">{notice}</div>}{loading ? <div className="loading">Загрузка результатов…</div> : dashboard ? <>
-        <div className="scan-meta"><span>{sourceLabels[dashboard.source]} · Сканирование {formatDate(dashboard.scanned_at)}{dashboard.duration_ms != null ? ` · ${dashboard.duration_ms} мс` : ''}</span><a href="/api/export/csv" className="export-link"><Icon name="download" size={17}/> Скачать CSV</a></div>
+        <div className="scan-meta"><span>{sourceLabels[dashboard.source]} · Сканирование {formatDate(dashboard.scanned_at)}{dashboard.duration_ms != null ? ` · ${dashboard.duration_ms} мс` : ''}</span><button onClick={() => downloadCsv().catch(e => setError(e.message))} className="export-link"><Icon name="download" size={17}/> Скачать CSV</button></div>
         <div className="page-stage" data-page={targetPage}>
         <div className="scene-lane" aria-hidden="true"><div className="scene-traveler" style={{ '--scene-step': pageIndex(targetPage) }}><ShieldScene/></div></div>
         <div key={page} className={`page-content page-${transition}`} inert={transition === 'exit' ? true : undefined}>

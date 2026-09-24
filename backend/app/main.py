@@ -3,11 +3,12 @@ import io
 import json
 import logging
 import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.responses import FileResponse
@@ -20,11 +21,25 @@ from .events import WindowsEventCollector
 from .config import settings
 from .gateway_client import collect_gateway
 from .storage import Storage, StorageError
+from .team_auth import TeamAuth
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("radar")
 storage = Storage(settings.db_path)
+team_auth = TeamAuth(settings.auth_db_path) if settings.auth_required else None
+rate_windows = defaultdict(deque)
+
+
+def rate_allowed(key: str, limit: int, seconds: int) -> bool:
+    now = time.monotonic()
+    entries = rate_windows[key]
+    while entries and entries[0] <= now - seconds:
+        entries.popleft()
+    if len(entries) >= limit:
+        return False
+    entries.append(now)
+    return True
 
 
 class AnalysisConfig(BaseModel):
@@ -66,9 +81,78 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Identity Risk Analyzer API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Identity Risk Analyzer API", version="0.1.0", lifespan=lifespan,
+              docs_url=None if settings.auth_required else "/docs",
+              redoc_url=None if settings.auth_required else "/redoc",
+              openapi_url=None if settings.auth_required else "/openapi.json")
 app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
-                   allow_credentials=False, allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type"])
+                   allow_credentials=False, allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type", "Authorization"])
+
+
+@app.middleware("http")
+async def team_access(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/") or request.method == "OPTIONS":
+        return await call_next(request)
+    length = request.headers.get("content-length", "0")
+    if not length.isdecimal() or int(length) > 16_384:
+        return JSONResponse(status_code=413, content={"detail": "Запрос слишком большой"})
+    if not settings.auth_required or path in ("/api/health", "/api/auth/login", "/api/auth/me"):
+        if path == "/api/auth/login" and settings.auth_required and not rate_allowed("login:" + (request.client.host if request.client else "unknown"), 5, 60):
+            return JSONResponse(status_code=429, content={"detail": "Слишком много попыток входа"})
+        response = await call_next(request)
+        if path.startswith("/api/auth/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+    authorization = request.headers.get("authorization", "")
+    token = authorization[7:] if authorization.startswith("Bearer ") else ""
+    identity = team_auth.identify(token) if team_auth else None
+    if not identity:
+        return JSONResponse(status_code=401, content={"detail": "Требуется вход в аккаунт"}, headers={"Cache-Control": "no-store"})
+    request.state.identity = identity
+    if (request.method in ("POST", "PUT") and path != "/api/auth/logout") or path in ("/api/export/csv", "/api/audit"):
+        if identity["role"] != "operator":
+            return JSONResponse(status_code=403, content={"detail": "Недостаточно прав"})
+        if not rate_allowed("action:" + identity["username"] + ":" + path, 10 if path != "/api/scans" else 3, 60):
+            return JSONResponse(status_code=429, content={"detail": "Слишком много запросов"})
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+
+
+@app.post("/api/auth/login")
+def team_login(payload: LoginRequest):
+    if not team_auth:
+        raise HTTPException(404, "Командный вход отключён")
+    token = team_auth.login(payload.username, payload.password)
+    if not token:
+        storage.audit("team_login", "failed", {"username": payload.username})
+        raise HTTPException(401, "Неверный логин или пароль")
+    storage.audit("team_login", "success", {"username": payload.username})
+    return {"token": token, "user": {"username": payload.username, "role": team_auth.identify(token)["role"]}}
+
+
+@app.get("/api/auth/me")
+def team_me(request: Request):
+    if not settings.auth_required:
+        return {"auth_required": False}
+    authorization = request.headers.get("authorization", "")
+    token = authorization[7:] if authorization.startswith("Bearer ") else ""
+    user = team_auth.identify(token) if team_auth else None
+    return {"auth_required": True, "user": user}
+
+
+@app.post("/api/auth/logout")
+def team_logout(request: Request):
+    token = request.headers.get("authorization", "")[7:]
+    if team_auth:
+        team_auth.logout(token)
+    return {"ok": True}
 
 
 @app.exception_handler(StorageError)

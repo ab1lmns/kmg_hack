@@ -22,6 +22,8 @@ load_dotenv()
 @dataclass(frozen=True)
 class Settings:
     db_path: Path = Path(os.getenv("RADAR_DB_PATH", "./data/radar.db"))
+    auth_required: bool = os.getenv("RADAR_AUTH_REQUIRED", "false").lower() == "true"
+    auth_db_path: Path = Path(os.getenv("RADAR_AUTH_DB_PATH", "./data/team_auth.db"))
     ad_source: str = os.getenv("AD_SOURCE", "ldap_direct").lower()
     ad_gateway_url: str = os.getenv("AD_GATEWAY_URL", "").rstrip("/")
     ad_gateway_token: str = os.getenv("AD_GATEWAY_TOKEN", "")
