@@ -45,7 +45,7 @@ class Settings:
     inactive_computer_days: int = int(os.getenv("INACTIVE_COMPUTER_DAYS", "90"))
     interactive_policy_path: Path | None = ((Path(__file__).resolve().parents[1] / os.getenv("INTERACTIVE_POLICY_PATH"))
         if os.getenv("INTERACTIVE_POLICY_PATH") else None)
-    owner_attribute: str = os.getenv("OWNER_ATTRIBUTE", "managedBy")
+    owner_attribute: str = os.getenv("OWNER_ATTRIBUTE", "manager")
     event_ssh_alias: str = os.getenv("EVENT_SSH_ALIAS", "")
     event_ssh_user: str = os.getenv("EVENT_SSH_USER", "")
     brute_attempts: int = int(os.getenv("BRUTE_ATTEMPTS", "5"))

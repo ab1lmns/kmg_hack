@@ -14,7 +14,11 @@ class Account:
     primary_group_id: int | None = None
     admin_count: int | None = None
     when_created: str | None = None
+    given_name: str = ""
+    surname: str = ""
     department: str = ""
+    title: str = ""
+    company: str = ""
     description: str = ""
     enabled: bool = True
     locked: bool = False

@@ -200,3 +200,14 @@ body{padding:12px}
 .evidence dt{font-size:10px;color:#718784;overflow-wrap:anywhere}
 .evidence dd{margin:0;font-size:11px;overflow-wrap:anywhere;line-height:1.45}
 @media(max-width:760px){.toolbar .select-wrap{flex:1 1 140px}.toolbar .select-wrap select{min-width:0;width:100%}}
+
+/* Keep the existing layout while making scan evidence readable at laptop scale. */
+.nav-link{font-size:13px}
+.section-head p,.dashboard-intro p{font-size:13px}
+.score-copy p,.metric-helper,.panel-head p,.quick-stats,.top-person small,.scan-meta,.footnote{font-size:12px}
+.facts div,.finding-card>p,.scope-note,.recommendation p,td{font-size:13px;line-height:1.55}
+.facts dt,.facts dd{line-height:1.55}
+.table-sub,.top-person strong,.badge{font-size:12px}
+.evidence>span,.evidence dt{font-size:11px}
+.evidence dd{font-size:12px}
+@media(max-width:540px){.quick-stats,.scan-meta,.top-person strong{font-size:12px}}
