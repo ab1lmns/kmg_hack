@@ -615,3 +615,23 @@ td{font-size:13px;color:var(--ui-ink)}
   .page-enter .metric-label,.page-enter .metric-value,
   .page-enter .distribution-fill{animation:none!important}
 }
+
+/* Pair the two compact analysis cards with the account list. */
+@media(min-width:1101px){
+  .dashboard-panels{
+    grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);
+    grid-template-areas:"distribution accounts" "category accounts";
+    grid-template-rows:auto auto;
+    gap:20px;
+    align-items:start;
+  }
+  .dashboard-panels > .distribution-panel{grid-area:distribution}
+  .dashboard-panels > .top-accounts-panel{grid-area:accounts}
+  .dashboard-panels > .category-panel{grid-area:category;grid-column:auto}
+  .category-panel .category-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 24px}
+}
+@media(max-width:1100px){
+  .dashboard-panels{grid-template-columns:1fr;gap:18px}
+  .dashboard-panels > .panel,
+  .dashboard-panels > .category-panel{grid-area:auto;grid-column:auto}
+}
