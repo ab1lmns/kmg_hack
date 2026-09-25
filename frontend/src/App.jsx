@@ -40,6 +40,21 @@ function Icon({ name, size = 20 }) {
   return <span className="icon" style={{ width: size, height: size, '--icon': `url(/icons/${name === 'radar' ? 'shield' : name}.svg)` }} aria-hidden="true" />
 }
 
+function ShieldScene() {
+  return <div className="shield-scene" aria-hidden="true">
+    <div className="scene-grid"/><div className="orbit orbit-one"/><div className="orbit orbit-two"/>
+    <div className="shield-object">
+      {Array.from({ length: 9 }, (_, index) => <div className="shield-layer" key={index} style={{ transform: `translateZ(${index * 2}px)` }}/>) }
+      <div className="shield-face"><Icon name="shield" size={64}/></div>
+    </div>
+    <div className="scene-cube cube-one"><i/><i/><i/></div><div className="scene-cube cube-two"><i/><i/><i/></div>
+  </div>
+}
+
+function WorkspaceScene() {
+  return <div className="scene-lane" aria-hidden="true"><div className="scene-traveler"><ShieldScene/></div></div>
+}
+
 function Empty({ title, body }) {
   return <div className="empty"><div className="empty-icon"><Icon name="shield" size={25}/></div><h3>{title}</h3><p>{body}</p></div>
 }
@@ -526,6 +541,7 @@ export default function App() {
       {scanStartedAt && <ScanProgress startedAt={scanStartedAt} source={source} active={scanning}/>}
       <div className="content" style={{ '--page-direction': direction }}>{error && <div className="alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Закрыть">×</button></div>}{notice && <div className="notice" role="status">{notice}</div>}{loading ? <div className="loading">Загрузка результатов…</div> : dashboard ? <>
         <div className="page-stage" data-page={targetPage}>
+        <WorkspaceScene/>
         <div key={page} className={`page-content page-${transition}`} inert={transition === 'exit' ? true : undefined}>
         {page === 'dashboard' && <Dashboard dashboard={dashboard} accounts={accounts} scans={scans} comparison={comparison} onOpenAccount={openAccount}/>}
         {page === 'risk-map' && <Suspense fallback={<div className="loading">Загружаем карту рисков…</div>}><RiskMap dashboard={dashboard} accounts={accounts} computers={computers} findings={findings} authentication={authentication} onOpenAccount={openAccount} onPlan={setSelectedFinding}/></Suspense>}
@@ -538,6 +554,6 @@ export default function App() {
         {page === 'history' && <ScanHistory scans={scans} selectedScanId={selectedScanId} onSelect={setSelectedScanId} recentRun={recentRun} riskThresholds={dashboard.risk_thresholds}/>}
         {page === 'settings' && <Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} onSave={saveThresholds} saving={saving}/>}
         </div></div>
-      </> : page === 'settings' ? <div className="page-content"><Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} onSave={saveThresholds} saving={saving}/></div> : page === 'history' ? <div className="page-content"><ScanHistory scans={scans} selectedScanId={selectedScanId} onSelect={setSelectedScanId} recentRun={recentRun} riskThresholds={thresholds}/></div> : <Empty title="Нет результатов" body="Запустите анализ, чтобы увидеть результаты. Настройки подключения доступны в разделе «Подключение»."/>}</div>
+      </> : page === 'settings' || page === 'history' ? <div className="page-stage" data-page={page}><WorkspaceScene/><div className="page-content">{page === 'settings' ? <Settings connection={connection ?? {}} onTest={testConnection} testing={testing} thresholds={thresholds} onThresholdChange={setThresholds} onSave={saveThresholds} saving={saving}/> : <ScanHistory scans={scans} selectedScanId={selectedScanId} onSelect={setSelectedScanId} recentRun={recentRun} riskThresholds={thresholds}/>}</div></div> : <Empty title="Нет результатов" body="Запустите анализ, чтобы увидеть результаты. Настройки подключения доступны в разделе «Подключение»."/>}</div>
     </main><AiChat page={page} scanId={dashboard?.scan_id} scannedAt={dashboard?.scanned_at} score={dashboard?.security_score} findingCount={dashboard?.finding_count}/>{selectedFinding && dashboard && <RemediationPlan key={`${dashboard.scan_id}:${selectedFinding.id}`} finding={selectedFinding} scanId={dashboard.scan_id} cache={planCache.current} onClose={closePlan}/>}</div>
 }
