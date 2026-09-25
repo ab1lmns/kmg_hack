@@ -60,6 +60,21 @@ def empty_infrastructure():
             ("ldap", "users", "groups", "computers", "fgpp", "security_event_log")}}
 
 
+def apply_scan_source_status(result, source_status):
+    """Show source status from the local saved scan, including after Gateway restart."""
+    if not source_status:
+        return result
+    if source_status.get("ldap") == "pass":
+        result["sources"]["users"] = "pass"
+        result["sources"]["groups"] = "pass"
+    for target, source in (("computers", "computers"), ("fgpp", "fine_grained_policies"),
+                           ("security_event_log", "security_event_log")):
+        status = source_status.get(source)
+        if status in ("pass", "error", "not_evaluated"):
+            result["sources"][target] = status
+    return result
+
+
 def _dns_status(resolver, name, record_type):
     try:
         records = resolver.resolve(name, record_type)
@@ -99,16 +114,7 @@ def dns_diagnostics(domain_name, dc_fqdn, nameserver):
 
 
 def collect_infrastructure(settings, source_status=None):
-    result = empty_infrastructure()
-    if source_status:
-        if source_status.get("ldap") == "pass":
-            result["sources"]["users"] = "pass"
-            result["sources"]["groups"] = "pass"
-        for target, source in (("computers", "computers"), ("fgpp", "fine_grained_policies"),
-                               ("security_event_log", "security_event_log")):
-            status = source_status.get(source)
-            if status in ("pass", "error", "not_evaluated"):
-                result["sources"][target] = status
+    result = apply_scan_source_status(empty_infrastructure(), source_status)
     if not all((settings.ldap_host, settings.ldap_username, settings.ldap_password)):
         return result
 

@@ -111,6 +111,19 @@ class InfrastructureTests(unittest.TestCase):
                 self.assertEqual(result.status_code, 200)
                 self.assertEqual(result.json()["infrastructure"]["forest"]["name"], "infraradar.test")
 
+    def test_gateway_mode_uses_local_saved_source_status(self):
+        saved = {"source": "ldap", "source_status": {"ldap": "pass",
+                 "computers": "pass", "fine_grained_policies": "pass",
+                 "security_event_log": "error"}}
+        with patch.object(main, "settings", SimpleNamespace(ad_source="gateway")), \
+             patch.object(main, "storage", SimpleNamespace(latest=lambda: saved)), \
+             patch.object(main, "collect_gateway_infrastructure", return_value=empty_infrastructure()):
+            result = main.infrastructure()
+        self.assertEqual(result["sources"]["users"], "pass")
+        self.assertEqual(result["sources"]["groups"], "pass")
+        self.assertEqual(result["sources"]["fgpp"], "pass")
+        self.assertEqual(result["sources"]["security_event_log"], "error")
+
 
 if __name__ == "__main__":
     unittest.main()
