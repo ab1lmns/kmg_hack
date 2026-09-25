@@ -988,3 +988,7 @@ td{font-size:13px;color:var(--ui-ink)}
 .infrastructure-check.status-error{color:#b52e51}
 .infrastructure-check.status-not_evaluated{color:var(--ui-muted)}
 @media(max-width:700px){.infrastructure-grid,.infrastructure-checks{grid-template-columns:1fr;gap:8px}}
+@media(max-width:640px){
+  .ai-chat-root{position:static;right:auto;bottom:auto;width:100%;padding:0 16px calc(20px + env(safe-area-inset-bottom, 0px));align-items:flex-end}
+  .ai-chat-panel{position:fixed;right:10px;bottom:calc(72px + env(safe-area-inset-bottom, 0px));height:min(640px,calc(100dvh - 100px - env(safe-area-inset-bottom, 0px)));z-index:1200}
+}
