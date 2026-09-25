@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from backend.app.collectors import CollectorError, collect_ldap
 from backend.app.config import settings
 from backend.app.events import WindowsEventCollector
+from backend.app.infrastructure import collect_infrastructure
 from .security import RateLimiter, TokenStore, database_path
 
 
@@ -26,7 +27,7 @@ async def protect(request: Request, call_next):
     path = request.url.path
     ip = request.client.host if request.client else "unknown"
     headers = {"Cache-Control": "no-store"}
-    if path not in ("/v1/health", "/v1/status", "/v1/snapshot") or request.method != "GET":
+    if path not in ("/v1/health", "/v1/status", "/v1/snapshot", "/v1/infrastructure") or request.method != "GET":
         return JSONResponse({"detail": "Not found"}, status_code=404, headers=headers)
     if (len(str(request.url)) > 256 or request.url.query or
             request.headers.get("content-length", "0") not in ("", "0")):
@@ -40,8 +41,9 @@ async def protect(request: Request, call_next):
     if not name:
         store.audit(None, ip, path, "denied")
         return JSONResponse({"detail": "Authentication required"}, status_code=401, headers=headers)
-    if not limits.allow("token:" + name, 20, 3600) or (
-        path == "/v1/snapshot" and not limits.allow("snapshot:" + name, 5, 600)):
+    if (not limits.allow("token:" + name, 20, 3600) or
+            (path == "/v1/snapshot" and not limits.allow("snapshot:" + name, 5, 600)) or
+            (path == "/v1/infrastructure" and not limits.allow("infrastructure:" + name, 8, 600))):
         store.audit(name, ip, path, "rate_limited")
         return JSONResponse({"detail": "Rate limited"}, status_code=429,
                             headers={**headers, "Retry-After": "600"})
@@ -60,6 +62,17 @@ def health():
 @app.get("/v1/status")
 def status():
     return last_status.copy()
+
+
+@app.get("/v1/infrastructure")
+def infrastructure():
+    if not collection_lock.acquire(blocking=False):
+        return JSONResponse({"detail": "Collection already in progress"}, status_code=429)
+    try:
+        return {"schema_version": 1, "infrastructure":
+                collect_infrastructure(settings, last_status.get("source_status"))}
+    finally:
+        collection_lock.release()
 
 
 @app.get("/v1/snapshot")

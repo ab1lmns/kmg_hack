@@ -8,14 +8,45 @@ from urllib.parse import urlsplit
 
 from .collectors import CollectorError, classify_snapshot
 from .models import Account, Computer, Group, Snapshot
+from .infrastructure import empty_infrastructure
 
 
 MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
+MAX_INFRASTRUCTURE_BYTES = 32 * 1024
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, msg, headers, newurl):
         raise CollectorError("Gateway redirect запрещён")
+
+
+def collect_gateway_infrastructure(settings):
+    """Fetch only the gateway's fixed infrastructure schema, never arbitrary LDAP."""
+    url = settings.ad_gateway_url
+    parsed = urlsplit(url)
+    fallback = empty_infrastructure()
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or not settings.ad_gateway_token:
+        return fallback
+    request = urllib.request.Request(url + "/v1/infrastructure", headers={
+        "Authorization": "Bearer " + settings.ad_gateway_token,
+        "Accept": "application/json",
+    })
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl.create_default_context()), _NoRedirect())
+    try:
+        with opener.open(request, timeout=20) as response:
+            if response.headers.get_content_type() != "application/json":
+                return fallback
+            body = response.read(MAX_INFRASTRUCTURE_BYTES + 1)
+        if len(body) > MAX_INFRASTRUCTURE_BYTES:
+            return fallback
+        payload = json.loads(body)
+        if payload.get("schema_version") != 1 or not isinstance(payload.get("infrastructure"), dict):
+            return fallback
+        data = payload["infrastructure"]
+        return data if all(key in data for key in fallback) else fallback
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, TypeError, KeyError):
+        fallback["diagnostics"]["LDAP_CONNECTION"] = "error"
+        return fallback
 
 
 def collect_gateway(settings) -> Snapshot:

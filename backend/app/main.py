@@ -22,6 +22,8 @@ from .collectors import CollectorError, collect_demo, collect_ldap
 from .events import WindowsEventCollector
 from .config import settings
 from .gateway_client import collect_gateway
+from .gateway_client import collect_gateway_infrastructure
+from .infrastructure import collect_infrastructure, empty_infrastructure
 from .storage import Storage, StorageError
 from .team_auth import TeamAuth
 
@@ -273,6 +275,21 @@ def connection_status():
         "last_scan_source": latest["source"] if latest else None,
         "last_users": latest["summary"]["total_users"] if latest else None,
         "last_groups": len(latest["groups"]) if latest else None}
+
+
+@app.get("/api/infrastructure")
+def infrastructure():
+    """Live read-only topology; historical scan and risk scores are untouched."""
+    if settings.ad_source == "gateway":
+        return collect_gateway_infrastructure(settings)
+    latest = storage.latest()
+    source_status = latest.get("source_status") if latest and latest.get("source") == "ldap" else None
+    try:
+        return collect_infrastructure(settings, source_status)
+    except Exception:
+        unavailable = empty_infrastructure()
+        unavailable["diagnostics"]["LDAP_CONNECTION"] = "error"
+        return unavailable
 
 
 @app.post("/api/connection/test")

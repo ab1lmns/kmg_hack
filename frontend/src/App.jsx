@@ -15,6 +15,7 @@ const chartLabels = { critical: 'Критично', high: 'Высокий', medi
 const sourceLabels = { demo: 'Демо', ldap: 'Active Directory' }
 const sourceStatusLabels = { ldap: 'Active Directory', fine_grained_policies: 'Fine-Grained Password Policies', computers: 'Компьютеры AD', spn_inventory: 'SPN', interactive_rights: 'Интерактивные права DC', security_event_log: 'Security Event Log', ad_gateway: 'AD Gateway' }
 const checkStatusLabels = { pass: 'Проверен', finding: 'Найдена проблема', partial: 'Частичные данные', error: 'Ошибка чтения', not_evaluated: 'Не оценён' }
+const infrastructureStatusLabel = status => status === 'pass' ? '✓ Проверен' : status === 'error' ? '! Ошибка чтения' : '— Не оценён'
 
 function interactiveStatus(value) {
   if (!value || value.status === 'not_evaluated') return 'Не оценён'
@@ -336,6 +337,14 @@ const thresholdFields = [['inactive_days', 'Неактивность, дней',
 
 function Settings({ connection, onTest, testing, thresholds, onThresholdChange, onSave, saving }) {
   const [validation, setValidation] = useState('')
+  const [infrastructure, setInfrastructure] = useState(null)
+  const [infrastructureError, setInfrastructureError] = useState(false)
+  useEffect(() => {
+    let active = true
+    api('/infrastructure').then(value => { if (active) setInfrastructure(value) })
+      .catch(() => { if (active) setInfrastructureError(true) })
+    return () => { active = false }
+  }, [])
   function submit() {
     for (const [key, label, min, max] of thresholdFields) {
       const value = thresholds[key]
@@ -353,6 +362,14 @@ function Settings({ connection, onTest, testing, thresholds, onThresholdChange, 
   }
   return <><div className="section-head"><div><div className="eyebrow">Подключение</div><h1>Источник Active Directory</h1></div></div>
     <section className="panel settings-panel"><div className="settings-title"><div className="server-icon"><Icon name="server" size={26}/></div><div><h2>{connection.connection_mode === 'AD Gateway' ? 'AD Gateway' : 'LDAP-подключение'}</h2><p>{connection.configured && !connection.password_required ? 'Параметры заполнены' : 'Ожидает настройки сервера'}</p></div><span className={`status-pill ${connection.connection_test_status === 'success' ? 'ready' : ''}`}>{connection.connection_test_status === 'success' ? 'Подключено' : connection.connection_test_status === 'failed' ? 'Ошибка проверки' : 'Не проверено'}</span></div><dl className="facts"><div><dt>Сервер / DC</dt><dd>{connection.host || '—'}</dd></div><div><dt>Порт</dt><dd>{connection.port ?? "—"}</dd></div><div><dt>Домен</dt><dd>{connection.domain || '—'}</dd></div><div><dt>Base DN</dt><dd>{connection.base_dn || '—'}</dd></div><div><dt>Учётная запись чтения</dt><dd>{connection.reader_username || '—'}</dd></div><div><dt>Режим</dt><dd>{connection.read_only ? 'Только чтение' : 'Неизвестно'}</dd></div><div><dt>Соединение</dt><dd>{connection.connection_mode === 'AD Gateway' ? 'HTTPS Gateway' : connection.use_ssl ? 'LDAPS' : 'LDAP через Tailscale'}</dd></div><div><dt>Успешная проверка</dt><dd>{formatDateTime(connection.last_connection_success)}</dd></div><div><dt>Последний scan</dt><dd>{formatDateTime(connection.last_scan)} · {sourceLabels[connection.last_scan_source] ?? connection.last_scan_source ?? '—'}</dd></div><div><dt>Объекты последнего scan</dt><dd>{connection.last_users ?? '—'} users / {connection.last_groups ?? '—'} groups</dd></div></dl><p className="credential-note">Данные для доступа к каталогу скрыты в интерфейсе.</p><button className="primary-button" onClick={onTest} disabled={!connection.configured || connection.password_required || testing}>{testing ? 'Проверяем…' : 'Проверить соединение'}</button></section>
+    <section className="panel settings-panel infrastructure-panel"><h2>Active Directory Infrastructure</h2>
+      {infrastructureError ? <p>Не удалось загрузить диагностику инфраструктуры.</p> : !infrastructure ? <p>Проверяем инфраструктуру…</p> : <>
+        <div className="infrastructure-grid"><dl className="facts"><div><dt>Forest</dt><dd>{infrastructure.forest?.name || 'Не оценён'}</dd></div><div><dt>Forest functional level</dt><dd>{infrastructure.forest?.functional_level || 'Не оценён'}</dd></div><div><dt>Domain</dt><dd>{infrastructure.domain?.name || 'Не оценён'}</dd></div><div><dt>NetBIOS</dt><dd>{infrastructure.domain?.netbios || 'Не оценён'}</dd></div><div><dt>Domain functional level</dt><dd>{infrastructure.domain?.functional_level || 'Не оценён'}</dd></div></dl>
+          <dl className="facts"><div><dt>Domain Controller</dt><dd>{infrastructure.domain_controller?.hostname || 'Не оценён'}</dd></div><div><dt>FQDN</dt><dd>{infrastructure.domain_controller?.fqdn || 'Не оценён'}</dd></div><div><dt>IP</dt><dd>{infrastructure.domain_controller?.ip || 'Не оценён'}</dd></div><div><dt>Сайт</dt><dd>{infrastructure.domain_controller?.site || 'Не оценён'}</dd></div><div><dt>LDAP</dt><dd>{infrastructure.domain_controller?.ldap_endpoint || 'Не оценён'}</dd></div></dl></div>
+        <div className="infrastructure-checks"><div><h3>DNS</h3>{[['domain_resolution', 'Домен'], ['dc_resolution', 'DC'], ['ldap_srv', 'LDAP SRV'], ['kerberos_srv', 'Kerberos SRV'], ['gc_srv', 'GC SRV']].map(([key, label]) => <span key={key} className={`infrastructure-check status-${infrastructure.dns?.[key] || 'not_evaluated'}`}>{label}: {infrastructureStatusLabel(infrastructure.dns?.[key])}</span>)}</div>
+          <div><h3>Источники</h3>{[['ldap', 'LDAP'], ['users', 'Users'], ['groups', 'Groups'], ['computers', 'Computers'], ['fgpp', 'FGPP'], ['security_event_log', 'Security Event Log']].map(([key, label]) => <span key={key} className={`infrastructure-check status-${infrastructure.sources?.[key] || 'not_evaluated'}`}>{label}: {infrastructureStatusLabel(infrastructure.sources?.[key])}</span>)}</div></div>
+        <p className="credential-note">Статусы источников относятся к последнему анализу; DNS и LDAP проверены сейчас. Эти проверки не влияют на Risk Score.</p>
+      </>}</section>
     <section className="panel settings-panel"><h2>Пороги анализа</h2><p>Сохранённые значения применятся при следующем сканировании.</p><div className="threshold-grid">{thresholdFields.map(([key, label, min, max]) => <label key={key}>{label}<input type="number" min={min} max={max} value={thresholds[key] ?? ''} onChange={e => onThresholdChange({ ...thresholds, [key]: e.target.value === '' ? '' : Number(e.target.value) })}/></label>)}</div><p className="credential-note">Пороги риска должны возрастать: Medium &lt; High &lt; Critical.</p>{validation && <p className="alert" role="alert">{validation}</p>}<button className="primary-button" onClick={submit} disabled={saving}>{saving ? 'Сохраняем…' : 'Сохранить пороги'}</button></section>
   </>
 }
