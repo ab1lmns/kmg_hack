@@ -67,8 +67,10 @@ for ($attempt = 0; $attempt -lt 90; $attempt++) {
     $target = Join-Path $directory 'interactive-rights.json'
     if (Test-Path $target) {
         $payload = Get-Content -LiteralPath $target -Raw | ConvertFrom-Json
+        $collectedUtc = [datetimeoffset]::Parse([string]$payload.collected_at).UtcDateTime
+        $ageMinutes = ((Get-Date).ToUniversalTime() - $collectedUtc).TotalMinutes
         if ($payload.target_host -eq $env:COMPUTERNAME -and
-            ((Get-Date).ToUniversalTime() - [datetime]$payload.collected_at).TotalMinutes -lt 2) {
+            $ageMinutes -ge 0 -and $ageMinutes -lt 2) {
             [pscustomobject]@{Mode='APPLIED';Task=$taskName;Reader=$reader.SamAccountName;
                 Target=$payload.target_host;TokenCount=@($payload.token_sids.PSObject.Properties).Count} |
                 ConvertTo-Json -Compress

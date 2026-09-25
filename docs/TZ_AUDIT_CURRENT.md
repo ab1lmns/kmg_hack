@@ -1,40 +1,63 @@
-# Актуальная сверка с ТЗ: проект 1 Identity Risk Analyzer
+# Актуальная сверка проекта 1 с ТЗ и схемой AD
 
-Проверено 2026-09-24 после запуска `InfraRadar-DC01`. Источник — оригинальное `Техническое задание Hackathon Infrastructure_Risk_Radar.docx`, разделы 2, 4 и 5.1. Проект 2 Certificate Radar в эту проверку не входит. Проверки ниже выполнялись на настоящем тестовом домене `infraradar.test`; AD-объекты и настройки домена не менялись.
+Проверено 2026-09-25 по оригинальному «Техническому заданию Hackathon Infrastructure_Risk_Radar.docx» (разделы 2, 4, 5.1) и присланной схеме Active Directory. Проект 2 Certificate Radar сюда не входит. Результаты относятся к живому `infraradar.test` после восстановления тестовых данных и обновления сервисов DigitalOcean до `087ebdd`.
 
-## Итог
+## Итог исправлений
 
-**Обязательный MVP раздела 2.8: 8/8 PASS.** Свежий scan на общем backend: `674707fb-1830-4da3-aa4e-1971e31aa0e2`, 42 пользователя, 57 групп, 1 компьютер, 45 находок, AD Security Score 71/100. Отдельный локальный backend через публичный HTTPS AD Gateway получил те же 42/45/71. Все доступные источники последнего scan — `pass`: LDAP, FGPP, компьютеры, SPN, интерактивные права DC и Security Event Log. Снимок интерактивных прав действует 60 минут; после этого источник честно станет `not_evaluated` до следующего read-only экспорта.
+| Проверка | До | Сейчас |
+|---|---:|---:|
+| Пользователи в `OU=InfraRadarLab` | 28, из них 12 обычных сотрудников | **42: 26 обычных, 7 `adm.*`, 7 `svc_*`, 2 reader** |
+| `manager` заполнен | 19/28 | **42/42** |
+| Получатели `IR-Lab-Lockout-PSO` | 0 | **1**, `m.kalayeva`; resultant PSO подтверждена PowerShell и LDAP |
+| Права интерактивного входа в обычном scan | `not_evaluated` | **`pass`**, 7/7 сервисов на тестовом DC |
+| Приватный backend | старый checkout, 46 находок, 7 ложных `MISSING_OWNER` | **39 находок, 0 `MISSING_OWNER`** |
 
-## Обязательный MVP (2.8)
+Добавлены 14 вымышленных сотрудников только в lab OU, заполнены отсутствовавшие `manager` только у lab аккаунтов, существующая PSO назначена одному новому lab пользователю. Старые SID, пароли, членства, SPN, риск-флаги и защищённые AD timestamps не менялись. Пароли новых аккаунтов случайны и не выводились. Перед изменениями были dry-run и снимок состояния без секретов; `scripts/Restore-CorporateLab.ps1` по умолчанию остаётся dry-run.
 
-| Требование | Статус | Свежая проверка |
-|---|---|---|
-| Подключение к тестовому AD | PASS | DC `INFRARADAR-DC01`, DNS/AD DS работают; read-only LDAP smoke прошёл |
-| Сбор учётных записей | PASS | 42 пользователя lab OU, 57 групп; `Get-ADDomain`, `Get-ADForest`, `Get-ADDomainController`, `Get-ADUser`, `Get-ADGroup` сверены |
-| Несколько проверок риска | PASS | 45 findings: 1 Critical, 28 High, 10 Medium, 6 Low |
-| Оценка риска | PASS | AD Security Score 71; unit-тесты границ и формулы прошли |
-| Web Dashboard | PASS по API/build; browser QA NOT VERIFIED | HTML, JS/CSS и 15 API-запросов отвечают 200; визуальный браузер в этой сессии недоступен |
-| Проблемы с причинами | PASS | У всех 45 findings есть причина, evidence и рекомендация |
-| Рекомендации | PASS | Автоматических AD write endpoints нет |
-| CSV/Excel/HTML | PASS для CSV | UTF-8 BOM, 14 колонок, 45 строк; прямое открытие в Excel в этой сессии не повторялось |
+## Живой scan и источники
 
-## Функциональные сценарии и пределы (2.3–2.7)
+| Источник / результат | Свежая проверка |
+|---|---|
+| DC, AD DS, DNS | `INFRARADAR-DC01.infraradar.test`, `100.93.42.103`; в этой сессии проверены NTDS, DNS, KDC, Netlogon, DNS A/SRV и LDAP bind |
+| LDAP | 42 lab users, 57 групп, 1 DC computer, 1 FGPP; отдельный `ir-ldap-reader` |
+| Security Event Log | `pass`; отдельный `ir-event-reader`, события 4624/4625/4771/4776 |
+| Интерактивные права | SYSTEM-задача `InfraRadar-InteractiveRights-ReadOnlyExport` обновляет JSON каждые 15 минут; `ir-event-reader` только читает снимок; обычный scan: `pass`, 7/7 сервисов `pass` |
+| Локальный Risk Engine через публичный HTTPS Gateway | 42 users, 57 groups, **39 findings, Security Score 75**, 0 `MISSING_OWNER`, 1 resultant PSO; доступные source statuses `pass` |
+| Приватный backend | scan `3c7d6873-c401-4907-a76c-26ce1f6d3062`: **42 / 39 / 75**, `interactive_rights=pass`, `security_event_log=pass`, 42/42 владельцев |
+| Gateway | Авторизованный HTTPS snapshot после обновления совпал с приватным scan; Risk Engine и история остаются в локальном backend |
 
-- **Пользователи:** 7 `SERVICE_PASSWORD_NEVER_EXPIRES`, 3 `EXPIRED_ACCOUNT`; disabled/locked/PNE и пороги проверяются кодом и тестами. Положительные старый пароль и длительная неактивность остаются `UNIT VERIFIED`, потому что защищённые AD timestamps не подделывались.
-- **Привилегии:** 7 `DIRECT_PRIVILEGE`, 6 `NESTED_PRIVILEGE`, 3 `DISABLED_PRIVILEGED`, 2 `MULTIPLE_PRIVILEGES` в live scan. Пути и циклы групп покрыты тестами.
-- **Политика:** домен `infraradar.test`, 1 FGPP. Read-only PowerShell подтвердил текущие доменные значения: `MinPasswordLength=0`, `ComplexityEnabled=true`, `LockoutThreshold=0`; анализ отмечает риски политики. Положительный слабый FGPP — только unit.
-- **Security Event Log:** отдельный `ir-event-reader` прочитал за 24 часа 4624: 2389, 4625: 107, 4771: 1, 4776: 100. Scan собрал 1293 нормализованных события, статус `pass`, 0 кандидатов на brute force/password spray. Положительные атаки — только unit; реальные атаки для проверки не создавались.
-- **Интерактивные права сервисов:** обновлён read-only снимок применённой политики DC для 7 `svc_*`; источник `pass`, разрешённого local/RDP logon среди них не обнаружено. Данные относятся к DC и становятся неактуальными через 60 минут; состояние RDP-службы и другие хосты не проверялись.
-- **Дополнительный AD-анализ:** компьютер, SPN, delegation и SIDHistory атрибуты читаются. Положительные опасные SIDHistory, duplicate SPN и delegation сценарии остаются `UNIT VERIFIED`; домен ради них не изменяли.
-- **Dashboard/history/export:** общий backend сохранил новый scan в SQLite WAL; API истории, сравнения, аккаунтов, групп, компьютеров, аутентификации, аудита и CSV ответили 200. Локальный backend через Gateway независимо выполнил scan и сохранил собственную историю/CSV.
+Снимок интерактивных прав относится **только к DC**. Он оценивает права по применённой политике и полным token SID; фактическая доступность RDP и другие ограничения входа отдельно не доказаны. При остановке задачи или устаревании снимка более 60 минут результат честно станет `not_evaluated`.
 
-Пример раздела 5.1 с **10 неактивными пользователями** в live AD не воспроизведён. ТЗ приводит эти количества как пример демонстрации, а не обязательный критерий MVP. Сценарии 7 service PNE, 3 disabled privileged и 2 multiple-role подтверждены свежим scan.
+## Матрица ТЗ
 
-## Безопасность и выполненные проверки (раздел 4)
+| Требование | Статус и предел |
+|---|---|
+| 2.8 Подключение, сбор пользователей, несколько правил, Risk Score, Dashboard, объяснения, рекомендации, CSV | **8/8 PASS по backend/API и build**. Свежий визуальный desktop/mobile browser QA после исправления не выполнялся |
+| Неактивные, старые пароли, Password Never Expires, disabled/expired/locked | Флаги и правила работают; положительные live случаи есть для части сценариев. Старые AD timestamps не подделывались; положительные неактивность/старый пароль остаются UNIT |
+| Сервисные аккаунты и права | LIVE: 7 сервисов, бессрочные пароли, вложенные привилегии, владелец и права входа DC. Положительный разрешённый interactive logon — UNIT |
+| Прямые/вложенные админ-группы, несколько ролей | LIVE: реальные пути членства и находки; делегирование `IR-Lab-Admins` ограничено lab OU |
+| Доменная парольная политика и FGPP | LIVE: 8 полей политики, 1 PSO с реальным resultant PSO; положительная слабая FGPP — UNIT |
+| Компьютеры, SIDHistory, SPN, Kerberos delegation | Сбор и правила есть; опасные положительные SIDHistory, duplicate SPN, delegation намеренно не создавались, они UNIT |
+| Brute force / password spray | LIVE: Event Log доступен и scan сообщает отсутствие сигналов; положительные эвристики UNIT, атаки не создавались |
+| История, SQLite, CSV | LIVE: scan записан, история и CSV прошли deployment check; CSV с UTF-8 BOM и 14 колонками |
+| Уведомления | OPTIONAL, не входят в обязательный MVP |
 
-- `RUN_LDAP_SMOKE=1 .venv/bin/python -m unittest discover -s tests -q`: **30/30 PASS**. `npm run build`: **PASS**.
-- Tailscale, SSH хоста и DC, Hyper-V VM `Running`, AD DS, DNS и LDAP: **PASS**. Reader `ir-ldap-reader` состоит только в `Domain Users`; Event Log reader — в `Domain Users` и `Event Log Readers`. Ни один не состоит в `Domain Admins`.
-- Реальные секреты из локального окружения и личные Gateway tokens сверены с ответами Dashboard/Accounts/Findings/CSV: совпадений нет. Секреты не выводились.
-- Приватный backend доступен через Tailscale Serve; публичный Gateway требует личный токен и возвращает read-only snapshot. Общий Dashboard API для Vercel пока **не опубликован**.
-- Визуальный desktop/mobile browser QA **NOT VERIFIED в этой сессии**: browser runtime не предоставил браузер. Предыдущие browser-проверки описаны в `TZ_COMPLIANCE.md`, но не выдаются здесь за свежие.
+Положительные случаи с пометкой UNIT здесь не объявляются LIVE VERIFIED.
+
+## Сверка с присланной схемой Active Directory
+
+| Элемент схемы | Фактический стенд и отношение к анализатору |
+|---|---|
+| Лес, домен, DC и каталог | Один лес/домен `infraradar.test`, один работающий DC. Analyzer читает объекты по LDAP и события; к `ntds.dit` напрямую не обращается |
+| Репликация DC1↔DC2 | На схеме пример двух DC; в тестовом стенде второго DC нет |
+| DNS и поиск контроллера | A/SRV записи работают. Backend использует заданный LDAP host; автоматическое DNS SRV discovery не требуется MVP |
+| Пользователи, группы, компьютеры, OU и GPO | Пользователи и группы читаются, 1 DC computer, lab OU и доменная парольная политика; произвольные GPO целиком не анализируются |
+| Kerberos TGT/TGS и доступ к файловому серверу | KDC и события входа доступны. Analyzer наблюдает риски, но не выдаёт билеты и не оценивает ACL отдельного файлового сервера |
+
+## Проверки и ограничения
+
+- `RUN_LDAP_SMOKE=1 .venv/bin/python -m unittest discover -s tests -q`: **38/38 PASS**.
+- Frontend production build: **PASS** на Mac и при обновлении приватного backend.
+- Приватный deployment check: health, LDAP connection, live scan, Dashboard/Accounts/Findings/Computers/Authentication/FGPP, CSV, SQLite и frontend — **PASS**.
+- Без токена Gateway запрещает snapshot; AD write endpoints отсутствуют. Приватный backend и DC остаются за Tailscale. Публичные порты других приложений на DigitalOcean и визуальный browser QA в рамках этого исправления повторно не проверялись; прежние ограничения публичного развёртывания сохраняются.
+- Backend сохраняет demo-режим для тестирования. При показе реальных результатов проверяйте источник последнего scan: Active Directory.

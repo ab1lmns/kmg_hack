@@ -21,13 +21,17 @@ Two active developer tokens were prepared on the administrator's Mac in `~/.conf
 
 If the Gateway returns 401, check the personal token or ask an administrator whether it was revoked. For 429, wait before scanning again. If its source status reports `not_evaluated`, inspect the relevant collector; interactive rights use a host-specific snapshot and become stale after 60 minutes. If the public URL is unavailable, the administrative `.ts.net` frontend continues independently.
 
-## Verified on 2026-09-24
+## Verified on 2026-09-24 (historical test)
 
 - Public HTTPS with certificate validation and Certbot renewal dry-run: PASS. Missing token: 401. Two personal tokens: 200. Revoked QA token: 401. Fixed read-only routes: POST rejected (404), arbitrary query rejected (413). Rate limit: 20 successful requests and then 429. Access audit records token name, source IP, route and status; the database contains only token hashes and audit records.
 - Live Gateway snapshot: 42 users, 57 groups (16 nested), 1 computer, 1 FGPP, 1 resultant PSO user, 9 SPN owners, Security Event Log and interactive rights `pass` at test time. The DC LDAP and Event Log reader were reached from DigitalOcean through Tailscale.
 - On Mac with Tailscale in `Stopped` state, an isolated local backend with **only** Gateway URL and personal token completed a live scan. With the standard `CRITICAL_GROUPS` setting, it produced 42 users, 45 findings, Security Score 71, and a local SQLite history and UTF-8 BOM CSV. The local Vite server served React and proxied `/api` to that backend.
 - In a temporary local copy, changing only `score_findings`' extra-evidence coefficient from `0.3` to `0.5` changed Risk Score for 11 accounts (for example `adm.a.sadykov` 88 → 92) after restarting only local FastAPI. The Gateway PID and commit stayed unchanged during that proof. The temporary modified copy and its duplicate token were deleted; the repository scoring formula remains `0.3`.
-- Automated browser rendering could not be checked because the browser connection was unavailable. Frontend build and Vite/API HTTP path passed. Interactive-rights freshness requires an administrative read-only policy export; the existing minimal Event Log reader cannot run `secedit /export`. When the copy ages past 60 minutes, Gateway honestly returns `not_evaluated` for that source.
+- Automated browser rendering could not be checked because the browser connection was unavailable. Frontend build and Vite/API HTTP path passed. The interactive-rights snapshot was manual at the time of this test.
+
+## Current check on 2026-09-25
+
+Gateway and private backend run commit `087ebdd`. An authenticated public HTTPS snapshot returned 42 users, 57 groups, 39 locally calculated findings and Security Score 75. LDAP, Security Event Log and interactive rights statuses were `pass`; all 7 service accounts had `pass` for DC interactive rights. A scheduled read-only DC export now refreshes the snapshot every 15 minutes. The 2026-09-24 test above remains the proof of local backend operation with Tailscale stopped; that exact network-isolation test was not repeated today.
 
 ## Administrator operations
 
