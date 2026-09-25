@@ -1,7 +1,10 @@
 import tempfile
 import unittest
+import json
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from app.analysis import analyze
 from app.collectors import _policy_row
@@ -70,6 +73,28 @@ class ExtendedRulesTests(unittest.TestCase):
             path = Path(temp) / "rights.json"
             path.write_text("{bad json", encoding="utf-8")
             self.assertEqual(InteractiveLogonCollector(path).load()[1], "error")
+
+    def test_remote_interactive_snapshot_uses_only_dedicated_reader(self):
+        payload = {"target_host": "INFRARADAR-DC01", "source_policy": "secedit merged",
+                   "collected_at": datetime.now(timezone.utc).isoformat(),
+                   "rights": {name: [] for name in RIGHTS},
+                   "token_sids": {"svc_backup": ["S-1-5-21-1-2-3-1000"]}}
+        results = [
+            subprocess.CompletedProcess([], 0, "user ir-event-reader@infraradar.test\nhostname 100.93.42.103\n", ""),
+            subprocess.CompletedProcess([], 0, "S-1-5-32-573", ""),
+            subprocess.CompletedProcess([], 0, json.dumps(payload), ""),
+        ]
+        collector = InteractiveLogonCollector(None, ssh_alias="infraradar-event-reader",
+                                               ssh_user="ir-event-reader@infraradar.test")
+        with patch("app.interactive.subprocess.run", side_effect=results) as run:
+            snapshot, status = collector.load()
+        self.assertEqual(status, "pass")
+        self.assertEqual(snapshot["target_host"], "INFRARADAR-DC01")
+        self.assertEqual(run.call_count, 3)
+        bad_config = subprocess.CompletedProcess([], 0, "user Administrator\nhostname 100.93.42.103\n", "")
+        with patch("app.interactive.subprocess.run", return_value=bad_config) as run:
+            self.assertEqual(collector.load()[1], "error")
+        self.assertEqual(run.call_count, 1)
 
     def test_auth_heuristics_require_bad_password_source_and_pattern(self):
         now = datetime.now(timezone.utc)

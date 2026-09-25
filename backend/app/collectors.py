@@ -361,7 +361,9 @@ def collect_ldap(settings: Settings, classify: bool = True) -> Snapshot:
         spn_owners.append({"name": str(_scalar(attrs.get("sAMAccountName")) or ""),
                            "distinguished_name": str(_scalar(attrs.get("distinguishedName")) or row.get("dn") or ""),
                            "spns": _list(attrs.get("servicePrincipalName"))})
-    policy_snapshot, interactive_status = InteractiveLogonCollector(settings.interactive_policy_path).load()
+    policy_snapshot, interactive_status = InteractiveLogonCollector(
+        settings.interactive_policy_path, ssh_alias=settings.event_ssh_alias or None,
+        ssh_user=settings.event_ssh_user or None).load()
     for account in accounts:
         account.interactive_logon = InteractiveLogonCollector.evaluate(
             account, policy_snapshot, interactive_status)
