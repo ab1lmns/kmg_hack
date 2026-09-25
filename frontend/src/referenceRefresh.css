@@ -146,3 +146,20 @@ td{padding:16px 18px;border-color:#edf2ee;color:#31493b;font-size:12px}tbody tr:
   .panel{padding:18px;border-radius:17px}.table-panel{padding:0}.toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:14px}.toolbar .search-field{grid-column:1/-1;width:100%}.toolbar .select-wrap{min-width:0;padding:0 9px;gap:4px}.toolbar .select-wrap span,.toolbar .select-wrap select{font-size:11px}.dashboard-column,.dashboard-columns{gap:13px}
   .sidebar nav{margin-right:-15px}.topbar .top-actions{gap:6px}.source-picker-trigger{padding:0 10px}.scan-button{padding:0 11px}
 }
+
+/* Full-screen 3D boot sequence, dynamically docked onto the workspace shield. */
+.startup-scene{position:fixed;z-index:3000;inset:0;display:grid;place-items:center;overflow:hidden;background:radial-gradient(ellipse at center,#f7fcf9 0,#e8f3ed 75%);animation:startup-screen-exit .35s ease-out 3.2s both}
+.startup-scene-model{width:285px;height:205px;position:relative;transform:scale(2.8);animation:startup-dock 3.2s cubic-bezier(.25,.75,.2,1) both}
+.startup-scene-model .shield-object{animation:startup-shield-turn 3.2s ease-in-out both}
+@keyframes startup-shield-turn{0%{transform:rotateX(8deg) rotateY(0deg) rotateZ(0deg)}60%,68%{transform:rotateX(10deg) rotateY(360deg) rotateZ(5deg)}100%{transform:rotateX(10deg) rotateY(334deg) rotateZ(9deg)}}
+@keyframes startup-dock{0%,68%{transform:translate(0,0) scale(2.8)}100%{transform:translate(var(--dock-x, 0px),var(--dock-y, 0px)) scale(var(--dock-scale, .78))}}
+@keyframes startup-screen-exit{to{opacity:0;visibility:hidden}}
+.page-stage .scene-traveler{transform:scale(.88)}
+@media(max-width:1100px) and (min-width:761px){.page-stage .scene-traveler{transform:scale(.62)}}
+@media(max-width:760px){
+  .page-stage>.scene-lane{display:block;position:relative;top:auto;right:auto;width:100%;height:96px;margin:0 0 8px;overflow:visible}
+  .page-stage .scene-traveler{top:0;left:50%;right:auto;transform:translateX(-50%) scale(.38);transform-origin:top center}
+  .startup-scene-model{animation-name:startup-dock-mobile}
+  @keyframes startup-dock-mobile{0%,68%{transform:translate(0,0) scale(2.25)}100%{transform:translate(var(--dock-x, 0px),var(--dock-y, 0px)) scale(var(--dock-scale, .38))}}
+}
+@media(prefers-reduced-motion:reduce){.startup-scene{display:none;animation:none}.startup-scene-model,.startup-scene-model .shield-object{animation:none}}

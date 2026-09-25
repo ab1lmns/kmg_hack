@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <circle cx="32" cy="32" r="27" fill="none" stroke="#143b32" stroke-width="5" stroke-linecap="round" stroke-dasharray="122 48" transform="rotate(145 32 32)"/>
-  <path d="M37 6a27 27 0 0 1 20 20M38 13a20 20 0 0 1 14 14" fill="none" stroke="#a6e8bd" stroke-width="4" stroke-linecap="round"/>
-  <path d="M16 33 31 20 47 33 39 47H23L16 33m0 0 31 0M23 47l8-27 8 27" fill="none" stroke="#143b32" stroke-width="3" stroke-linejoin="round"/>
-  <circle cx="16" cy="33" r="5" fill="#143b32"/>
-  <circle cx="31" cy="20" r="5" fill="#143b32"/>
-  <circle cx="23" cy="47" r="5" fill="#143b32"/>
-  <circle cx="39" cy="47" r="5" fill="#143b32"/>
-  <circle cx="47" cy="33" r="6" fill="#fa6c59"/>
+  <defs>
+    <linearGradient id="shield" x1="12" y1="8" x2="52" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a7d7c3"/><stop offset=".6" stop-color="#4f967e"/><stop offset="1" stop-color="#34715e"/>
+    </linearGradient>
+  </defs>
+  <path d="m32 5 23 10v17c0 13-9 22-23 28C18 54 9 45 9 32V15L32 5Z" fill="#245b4b" transform="translate(3 2)"/>
+  <path d="m32 4 23 10v17c0 13-9 22-23 28C18 53 9 44 9 31V14L32 4Z" fill="url(#shield)"/>
+  <path d="m21 31 7 7 15-16" fill="none" stroke="#ecfff3" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"/>
 </svg>

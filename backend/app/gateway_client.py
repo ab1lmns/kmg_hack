@@ -60,7 +60,12 @@ def collect_gateway(settings) -> Snapshot:
         "Authorization": "Bearer " + settings.ad_gateway_token,
         "Accept": "application/json",
     })
-    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl.create_default_context()), _NoRedirect())
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        ctx = ssl.create_default_context()
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx), _NoRedirect())
     try:
         with opener.open(request, timeout=100) as response:
             if response.headers.get_content_type() != "application/json":

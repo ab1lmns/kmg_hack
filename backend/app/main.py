@@ -270,11 +270,11 @@ def connection_status():
         "domain": "infraradar.test" if gateway else ".".join(part[3:] for part in settings.ldap_base_dn.split(",") if part.lower().startswith("dc=")),
         "reader_username": "Gateway-managed" if gateway else settings.ldap_username,
         "read_only": True, "last_connection_success": last_success,
-        "connection_test_status": last_check["status"] if last_check else "not_checked",
-        "last_scan": latest["scanned_at"] if latest else None,
-        "last_scan_source": latest["source"] if latest else None,
-        "last_users": latest["summary"]["total_users"] if latest else None,
-        "last_groups": len(latest["groups"]) if latest else None}
+        "connection_test_status": last_check.get("status") if last_check else "not_checked",
+        "last_scan": latest.get("scanned_at") if latest else None,
+        "last_scan_source": latest.get("source") if latest else None,
+        "last_users": (latest.get("summary") or {}).get("total_users") if latest else None,
+        "last_groups": len(latest["groups"]) if (latest and "groups" in latest and latest["groups"] is not None) else None}
 
 
 @app.get("/api/infrastructure")
