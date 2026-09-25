@@ -798,7 +798,7 @@ td{font-size:13px;color:var(--ui-ink)}
 /* Keep the desktop toolbar on one row, including scan metadata and actions. */
 .topbar{position:relative;z-index:20;height:64px;min-height:64px;display:flex;flex-wrap:nowrap;align-items:center;gap:14px;padding:0 20px}
 .topbar .breadcrumb{flex:none;line-height:1.15}
-.topbar .scan-meta{display:flex;align-items:center;justify-content:center;gap:8px;flex:1 1 auto;min-width:0;max-width:100%;min-height:31px;margin:0;padding:4px 0 4px 12px;border-left:2px solid #518a69;background:none;color:#486a58;font-size:12px;line-height:1.3;white-space:nowrap;animation:scan-stamp .55s ease-out both}
+.topbar .scan-meta{display:flex;align-items:center;justify-content:center;gap:8px;flex:1 1 auto;min-width:0;max-width:100%;min-height:31px;margin:0;padding:4px 0;background:none;color:#486a58;font-size:12px;line-height:1.3;white-space:nowrap;animation:scan-stamp .55s ease-out both}
 .topbar .scan-meta strong{color:#24553b;font-size:12px;font-weight:700}
 .scan-meta-time{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .scan-meta-duration{flex:none;margin-left:3px;padding-left:9px;border-left:1px solid #c8dfcf;color:#607b6b;font-variant-numeric:tabular-nums}
