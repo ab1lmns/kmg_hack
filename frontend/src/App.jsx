@@ -4,7 +4,8 @@ import { ScanHistory, ScanProgress } from './ScanExperience.jsx'
 import { securityScoreTone } from './securityScoreTone.js'
 import SourcePicker from './SourcePicker.jsx'
 import AiChat from './AiChat.jsx'
-import RemediationPlan from './RemediationPlan.jsx'
+import RemediationPlan from './RemediationPlan.jsx?modal=large'
+import logoUrl from './assets/infraradar-logo.png'
 
 const RiskMap = lazy(() => import('./RiskMap.jsx'))
 
@@ -497,9 +498,9 @@ export default function App() {
 
   if (auth === null) return <div className="loading">Проверяем доступ…</div>
   if (auth === 'error') return <div className="login-page"><section className="panel login-panel"><h1>Сервис недоступен</h1><p>{loginError}</p></section></div>
-  if (auth === 'login') return <div className="login-page"><form className="panel login-panel" onSubmit={signIn}><h1>Identity Risk</h1><p>Вход для участников команды</p><label>Логин<input autoComplete="username" value={loginName} onChange={e => setLoginName(e.target.value)} required/></label><label>Пароль<input type="password" autoComplete="current-password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} required/></label>{loginError && <p className="alert" role="alert">{loginError}</p>}<button className="primary-button" disabled={loggingIn}>{loggingIn ? 'Входим…' : 'Войти'}</button></form></div>
+  if (auth === 'login') return <div className="login-page"><form className="panel login-panel" onSubmit={signIn}><h1 className="login-brand"><img src={logoUrl} alt="InfraRadar" /></h1><p>Вход для участников команды</p><label>Логин<input autoComplete="username" value={loginName} onChange={e => setLoginName(e.target.value)} required/></label><label>Пароль<input type="password" autoComplete="current-password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} required/></label>{loginError && <p className="alert" role="alert">{loginError}</p>}<button className="primary-button" disabled={loggingIn}>{loggingIn ? 'Входим…' : 'Войти'}</button></form></div>
 
-  return <div className="app-shell"><aside className="sidebar"><div className="brand"><div><strong>Identity Risk</strong><span>Security workspace</span></div></div><div className="nav-label">Рабочая область</div><nav aria-label="Основная навигация">{nav.map(item => <button key={item.key} onClick={() => setPage(item.key)} aria-current={targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'page' : undefined} className={`nav-link ${targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'active' : ''}`}><Icon name={item.icon} size={19}/><span>{item.label}</span></button>)}</nav></aside>
+  return <div className="app-shell"><aside className="sidebar"><div className="brand"><img className="brand-logo" src={logoUrl} alt="InfraRadar" /></div><div className="nav-label">Рабочая область</div><nav aria-label="Основная навигация">{nav.map(item => <button key={item.key} onClick={() => setPage(item.key)} aria-current={targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'page' : undefined} className={`nav-link ${targetPage === item.key || (targetPage === 'detail' && item.key === 'accounts') ? 'active' : ''}`}><Icon name={item.icon} size={19}/><span>{item.label}</span></button>)}</nav></aside>
     <main className="main"><header className="topbar">
       <div className="breadcrumb">Рабочая область <span>/</span> <strong>{page === 'detail' ? 'Карточка аккаунта' : nav.find(item => item.key === page)?.label}</strong></div>
       {dashboard && <div key={dashboard.scanned_at} className="scan-meta" title={`${sourceLabels[dashboard.source] ?? dashboard.source} · Сканирование ${formatDateTime(dashboard.scanned_at)}`}><strong>{sourceLabels[dashboard.source] ?? dashboard.source}</strong><span className="scan-meta-time">Сканирование {formatDateTime(dashboard.scanned_at)}</span>{dashboard.duration_ms != null && <span className="scan-meta-duration">{(dashboard.duration_ms / 1000).toFixed(1)} с</span>}</div>}
